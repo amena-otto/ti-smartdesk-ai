@@ -1,21 +1,45 @@
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AppLayout } from './components/AppLayout';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { PublicOnlyRoute } from './components/PublicOnlyRoute';
+import { AuthProvider } from './features/auth/AuthProvider';
+import { supabaseConfigProblems } from './lib/supabase';
+import { ConfigurationErrorPage } from './pages/ConfigurationErrorPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { LoginPage } from './pages/LoginPage';
+import { NewTicketPage } from './pages/NewTicketPage';
+import { NotFoundPage } from './pages/NotFoundPage';
+import { TicketDetailPage } from './pages/TicketDetailPage';
+import { TicketsPage } from './pages/TicketsPage';
+
 function App() {
+  if (supabaseConfigProblems.length > 0) {
+    return <ConfigurationErrorPage problems={supabaseConfigProblems} />;
+  }
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-blue-400">
-          TI SmartDesk AI
-        </h1>
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route element={<PublicOnlyRoute />}>
+            <Route path="login" element={<LoginPage />} />
+          </Route>
 
-        <p className="mt-4 text-slate-300">
-          Plataforma inteligente de gestión de atenciones TI
-        </p>
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AppLayout />}>
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="tickets" element={<TicketsPage />} />
+              <Route path="tickets/nuevo" element={<NewTicketPage />} />
+              <Route path="tickets/:ticketId" element={<TicketDetailPage />} />
+            </Route>
+          </Route>
 
-        <span className="mt-6 inline-block rounded-lg bg-blue-600 px-5 py-3">
-          Configuración inicial completada
-        </span>
-      </div>
-    </main>
-  )
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  );
 }
 
-export default App
+export default App;
