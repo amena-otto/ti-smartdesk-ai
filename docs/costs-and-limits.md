@@ -41,7 +41,7 @@ Los siguientes valores son propuestas configurables, no capacidades de un provee
 
 | Límite | Valor propuesto | Motivo |
 | --- | --- | --- |
-| Longitud del texto enviado a IA | 4 000 caracteres | Suficiente para describir una atención y acotar tokens. |
+| Longitud del texto enviado a IA | 4 000 caracteres | Suficiente para describir una incidencia y acotar tokens. |
 | Tokens máximos de salida | 800 | La propuesta es estructurada y breve. |
 | Solicitudes por técnico y día | 100 | Volumen esperado bajo; evita abuso. |
 | Tiempo de espera por solicitud | 20 segundos | Permite responder o degradar a manual. |

@@ -2,258 +2,330 @@
 
 ## Estado y alcance
 
-Propuesta para la fase 1. Todavía no existen migraciones ni SQL ejecutable en el repositorio. Este documento describe el modelo lógico, las restricciones, la seguridad por filas y los mecanismos de integridad; no sustituye a las migraciones versionadas que se crearán al implementar.
+La fase 1 implementa en migraciones versionadas `public.profiles`, `public.catalogo_categorias`, `public.tickets`, `public.ticket_historial` y las funciones RPC del ciclo de vida. El diseño cubre la creación de tickets antes de la atención, sus transiciones, el historial y la seguridad por filas. Las entidades de conocimiento y RAG se describen como ampliación futura.
 
-El diseño cubre únicamente el registro de atenciones resueltas, sus catálogos y la auditoría. Las entidades de conocimiento y RAG se describen como ampliación futura.
+Las migraciones no se aplican automáticamente y todavía no se han ejecutado contra un proyecto Supabase real. Este documento describe el modelo implementado; no sustituye a los archivos SQL.
 
 ## Principios
 
-- PostgreSQL es la fuente de verdad de datos, códigos, fechas técnicas y auditoría.
-- El cliente no elige el código, el técnico responsable ni los datos de auditoría.
+- PostgreSQL es la fuente de verdad de datos, numeración, fechas técnicas e historial.
+- El cliente no elige el número, el técnico asignado ni los datos del historial.
 - Toda tabla expuesta en el esquema público tiene RLS habilitada y políticas explícitas.
-- La escritura de tickets tiene una sola vía controlada; no se concede DML directo al cliente.
-- La creación de un ticket y su evento de auditoría ocurren en la misma transacción.
-- No hay borrado físico de tickets ni de auditoría en la primera versión.
-- El esquema evita entidades que no aportan valor inmediato, como un maestro de personas o un ciclo de estados de ticket.
+- La escritura de tickets tiene una sola vía controlada: funciones RPC; no se concede DML directo al cliente.
+- Cada transición y su evento de historial ocurren en la misma transacción.
+- No hay borrado físico de tickets ni edición del historial.
+- Los estados y las transiciones se restringen en la base, no solo en la interfaz.
 
 ## Modelo conceptual
 
 ```mermaid
 erDiagram
-  TECHNICIAN_PROFILE ||--o{ TICKET : "registra"
-  CATEGORY ||--o{ TICKET : "clasifica"
-  TECHNICIAN_PROFILE ||--o{ AUDIT_EVENT : "actúa"
-  TICKET ||--o{ AUDIT_EVENT : "genera"
+  PROFILES ||--o{ TICKETS : "crea"
+  PROFILES ||--o{ TICKETS : "atiende"
+  CATALOGO_CATEGORIAS ||--o{ TICKETS : "clasifica"
+  TICKETS ||--o{ TICKET_HISTORIAL : "registra"
+  PROFILES ||--o{ TICKET_HISTORIAL : "actúa"
 
-  TECHNICIAN_PROFILE {
+  PROFILES {
     uuid id PK "igual a auth.users.id"
-    text full_name
-    boolean active
-    timestamptz created_at
-  }
-  CATEGORY {
-    uuid id PK
-    text name UK
-    text description
-    boolean active
+    text nombres
+    text apellidos
+    text rol "admin | tecnico"
+    boolean activo
     timestamptz created_at
     timestamptz updated_at
   }
-  TICKET {
+  CATALOGO_CATEGORIAS {
     uuid id PK
-    text code UK
-    uuid category_id FK
-    text person_name
-    text person_type
-    uuid technician_id FK
-    date attention_date
-    text location "opcional"
-    text problem_description "opcional"
-    text solution "opcional"
-    text channel
-    text origin
-    uuid client_request_id UK
-    text request_hash
-    timestamptz created_at
+    text nombre UK
+    text descripcion
+    boolean activo
+    timestamptz creado_en
+    timestamptz actualizado_en
   }
-  AUDIT_EVENT {
+  TICKETS {
+    uuid id PK
+    text numero_ticket UK
+    text asunto
+    text descripcion
+    uuid categoria_id FK
+    text solicitante_nombre
+    text solicitante_tipo
+    text ubicacion "opcional"
+    text canal_origen
+    text estado
+    uuid tecnico_asignado_id FK "opcional"
+    text solucion "opcional"
+    timestamptz fecha_creacion
+    timestamptz fecha_inicio_atencion
+    timestamptz fecha_resolucion
+    timestamptz fecha_cierre
+    uuid created_by FK
+    text clave_idempotencia UK
+    text huella_contenido
+  }
+  TICKET_HISTORIAL {
     bigint id PK
+    uuid ticket_id FK
+    text accion
+    text estado_anterior
+    text estado_nuevo
     uuid actor_id FK
-    text action
-    text entity
-    uuid entity_id
-    jsonb changes
-    uuid request_id
-    timestamptz occurred_at
+    text detalle
+    timestamptz creado_en
   }
 ```
 
-Los nombres son propuestos y pueden ajustarse en las migraciones sin cambiar el significado del dominio.
-
 ## Tablas
 
-### `technician_profiles`
+### `profiles`
+
+Se mantiene la tabla existente de la migración `20261026120000_create_profiles.sql`.
 
 | Columna | Tipo | Nulo | Restricción |
 | --- | --- | --- | --- |
-| `id` | `uuid` | No | PK; referencia a `auth.users(id)`; sin alta automática desde el navegador. |
-| `full_name` | `text` | No | Longitud acotada; se muestra en la interfaz y en la auditoría. |
-| `active` | `boolean` | No | Por defecto `true`; un técnico inactivo no puede operar. |
-| `created_at` | `timestamptz` | No | Valor del servidor. |
+| `id` | `uuid` | No | PK; referencia a `auth.users(id)` con borrado en cascada; sin alta automática desde el navegador. |
+| `nombres` | `text` | No | Longitud de 1 a 100 sin espacios vacíos. |
+| `apellidos` | `text` | No | Longitud de 1 a 120 sin espacios vacíos. |
+| `rol` | `text` | No | `admin` o `tecnico`; por defecto `tecnico`. |
+| `activo` | `boolean` | No | Por defecto `false`; se activa durante el aprovisionamiento. |
+| `created_at` / `updated_at` | `timestamptz` | No | Valores del servidor; `updated_at` se actualiza con trigger. |
 
-El alta y la baja de técnicos requieren una decisión operativa pendiente. No se permite que un usuario se autoasigne el rol.
+La migración `20261026130000_create_ticket_foundation.sql` añade:
 
-### `categories`
+- `public.is_active_staff()`: `security definer`, `search_path = ''`; devuelve `true` si el usuario autenticado tiene perfil activo con rol `admin` o `tecnico`.
+- `public.is_active_technician()`: misma forma, pero exige `rol = 'tecnico'`.
+- La política `profiles_select_active_staff`, que permite al personal activo leer todos los perfiles para mostrar nombres de técnicos y actores del historial. Se suma a `profiles_select_own` y `profiles_select_admin`; no se conceden permisos de escritura.
+
+El aprovisionamiento inicial y la baja son operaciones manuales con un rol de confianza, documentadas en [supabase/README.md](../supabase/README.md).
+
+### `catalogo_categorias`
 
 | Columna | Tipo | Nulo | Restricción |
 | --- | --- | --- | --- |
-| `id` | `uuid` | No | PK. |
-| `name` | `text` | No | Único, sin distinción de mayúsculas ni espacios sobrantes. |
-| `description` | `text` | Sí | Texto breve usado para clasificar y para el prompt. |
-| `active` | `boolean` | No | Por defecto `true`. Desactivar conserva referencias históricas. |
-| `created_at` | `timestamptz` | No | Valor del servidor. |
-| `updated_at` | `timestamptz` | No | Se actualiza en cada cambio auditado. |
+| `id` | `uuid` | No | PK con `gen_random_uuid()`. |
+| `nombre` | `text` | No | Longitud de 1 a 80; índice único sobre `lower(btrim(nombre))`. |
+| `descripcion` | `text` | Sí | Máximo 300 caracteres. |
+| `activo` | `boolean` | No | Por defecto `true`. Una categoría inactiva conserva las referencias históricas y no se puede usar en tickets nuevos. |
+| `creado_en` / `actualizado_en` | `timestamptz` | No | Valores del servidor; `actualizado_en` se actualiza con trigger. |
 
-Se propone una tabla y no un tipo enumerado para permitir mantenimiento sin migración estructural. El catálogo inicial está pendiente de aprobación.
+La migración inserta un catálogo provisional: Hardware, Software, Redes y conectividad, Cuentas y accesos, Impresoras y Otros. La institución debe revisarlo y mantenerlo mediante una operación administrativa controlada; el cliente solo puede leerlo.
 
 ### `tickets`
 
 | Columna | Tipo | Nulo | Restricción |
 | --- | --- | --- | --- |
-| `id` | `uuid` | No | PK interna; no se usa como código visible. |
-| `code` | `text` | No | Único; generado por el servidor; inmutable. |
-| `category_id` | `uuid` | No | FK a `categories`; la categoría debe existir y estar activa al crear. |
-| `person_name` | `text` | No | Longitud acotada; no es identificador único. |
-| `person_type` | `text` | No | `estudiante`, `docente` o `administrativo`. |
-| `technician_id` | `uuid` | No | FK a `technician_profiles`; derivado de la sesión. |
-| `attention_date` | `date` | No | Fecha del servicio; no puede ser futura salvo decisión expresa. |
-| `location` | `text` | Sí | Ubicación de esa atención; nunca se propaga a un perfil de persona. |
-| `problem_description` | `text` | Sí | Obligatoriedad pendiente de aprobación. |
-| `solution` | `text` | Sí | Obligatoriedad pendiente de aprobación. |
-| `channel` | `text` | No | `presencial` o `whatsapp`; este último no implica integración. |
-| `origin` | `text` | No | `manual` o `asistido`; metadato de trazabilidad. |
-| `client_request_id` | `uuid` | No | Generado por la interfaz; único por técnico para idempotencia. |
-| `request_hash` | `text` | No | Huella del contenido enviado; detecta reutilización con datos distintos. |
-| `created_at` | `timestamptz` | No | Valor del servidor; distinto de `attention_date`. |
+| `id` | `uuid` | No | PK interna con `gen_random_uuid()`. |
+| `numero_ticket` | `text` | No | Único; por defecto `TS-` + secuencia con relleno de 6 dígitos. Formato `^TS-[0-9]{6,}$`. |
+| `asunto` | `text` | No | Entre 3 y 150 caracteres sin espacios sobrantes. |
+| `descripcion` | `text` | No | Entre 5 y 4000 caracteres. |
+| `categoria_id` | `uuid` | No | FK a `catalogo_categorias` con `ON DELETE RESTRICT`. |
+| `solicitante_nombre` | `text` | No | Entre 2 y 150 caracteres; no es identificador único. |
+| `solicitante_tipo` | `text` | No | `estudiante`, `docente` o `administrativo`. |
+| `ubicacion` | `text` | Sí | Máximo 200 caracteres. |
+| `canal_origen` | `text` | No | `manual`, `ia`, `whatsapp` o `correo`; por defecto `manual`. |
+| `estado` | `text` | No | `nuevo`, `en_atencion`, `resuelto`, `cerrado` o `reabierto`; por defecto `nuevo`. |
+| `tecnico_asignado_id` | `uuid` | Sí | FK a `profiles` con `ON DELETE RESTRICT`; nulo mientras no se toma el ticket. |
+| `solucion` | `text` | Sí | Entre 5 y 4000 caracteres cuando existe. Obligatoria en `resuelto` y `cerrado`. |
+| `fecha_creacion` | `timestamptz` | No | Valor del servidor. |
+| `fecha_inicio_atencion` | `timestamptz` | Sí | Se registra al iniciar; obligatoria en `en_atencion`. |
+| `fecha_resolucion` | `timestamptz` | Sí | Se registra al resolver; obligatoria en `resuelto` y `cerrado`. |
+| `fecha_cierre` | `timestamptz` | Sí | Se registra al cerrar; obligatoria en `cerrado`. |
+| `created_by` | `uuid` | Sí | FK a `profiles`; en la interfaz se deriva del actor. Queda nulo solo si una integración autorizada no lo informa. |
+| `clave_idempotencia` | `text` | Sí | Única; máximo 200 caracteres. |
+| `huella_contenido` | `text` | Sí | MD5 hexadecimal de 32 caracteres; la interfaz no la muestra ni la usa. |
+| `actualizado_en` | `timestamptz` | No | Valor del servidor; se actualiza con trigger. |
 
-No se incluye columna de estado: por definición, todo registro es una atención resuelta. Una consulta pendiente no genera ticket.
+Restricciones de coherencia más relevantes:
 
-### `audit_events`
+- `tickets_tecnico_requerido`: los estados `en_atencion`, `resuelto` y `cerrado` exigen técnico asignado; `nuevo` y `reabierto` pueden no tenerlo.
+- `tickets_en_atencion_completo`: `en_atencion` exige técnico y fecha de inicio.
+- `tickets_resuelto_completo` y `tickets_cerrado_completo`: exigen solución y fechas correspondientes.
+- `tickets_fechas_coherentes`: las fechas del ciclo no pueden ser anteriores a la creación ni invertir su orden.
+- La tabla no admite `DELETE` mediante un trigger de protección; no existen políticas de escritura.
+
+El número lo genera PostgreSQL a partir de `public.ticket_numero_seq`. Una secuencia puede tener saltos por transacciones revertidas; el número no promete continuidad.
+
+### `ticket_historial`
 
 | Columna | Tipo | Nulo | Restricción |
 | --- | --- | --- | --- |
 | `id` | `bigint` | No | PK con identidad; orden de inserción. |
-| `actor_id` | `uuid` | No | Usuario autenticado que ejecutó la operación. |
-| `action` | `text` | No | Por ejemplo, `ticket.created` o `ticket.updated`. |
-| `entity` | `text` | No | Tabla o entidad afectada. |
-| `entity_id` | `uuid` | No | Identificador del registro afectado. |
-| `changes` | `jsonb` | Sí | Campos relevantes modificados, sin secretos ni texto innecesario. |
-| `request_id` | `uuid` | Sí | Correlación con la solicitud de la interfaz. |
-| `occurred_at` | `timestamptz` | No | Valor del servidor. |
+| `ticket_id` | `uuid` | No | FK a `tickets` con `ON DELETE RESTRICT`. |
+| `accion` | `text` | No | `creado`, `tomado`, `iniciado`, `resuelto`, `cerrado` o `reabierto`. |
+| `estado_anterior` | `text` | Sí | Nulo solo en la creación. |
+| `estado_nuevo` | `text` | No | Estado resultante de la acción. |
+| `actor_id` | `uuid` | No | FK a `profiles`; siempre deriva de la sesión o de la integración autorizada. |
+| `detalle` | `text` | Sí | Máximo 4000 caracteres; contiene la solución o el motivo de reapertura. |
+| `creado_en` | `timestamptz` | No | Valor del servidor. |
 
-La tabla es de solo adición. No se conceden permisos de actualización ni de borrado a ningún rol de aplicación. La consulta se restringe a perfiles autorizados según la política pendiente.
+Un trigger rechaza `UPDATE` y `DELETE` incluso para roles de aplicación. La tabla es de solo adición mediante las funciones RPC.
 
 ### Ampliación futura: conocimiento
 
-En fase 4 se incorporarán `knowledge_documents` (título, contenido aprobado, procedencia, permisos, vigencia) y `knowledge_chunks` (fragmento, referencia al documento, vector). La extensión `pgvector` y sus índices se añadirán entonces, no antes.
+En fase 4 se incorporarán `knowledge_documents` y `knowledge_chunks` con procedencia, permisos, vigencia y representaciones vectoriales. La extensión `pgvector` y sus índices se añadirán entonces, no antes.
 
-## Generación del código
+## Ciclo de vida y transiciones
 
-- Una secuencia de PostgreSQL proporciona valores atómicos y admite concurrencia.
-- La función de creación compone el código visible a partir de la secuencia y una fecha institucional.
-- La restricción de unicidad protege incluso si el formato cambia.
-- El código es inmutable y nunca lo propone el navegador ni la IA.
-- Una secuencia puede tener saltos por transacciones revertidas; el código no promete numeración continua.
-- El formato definitivo, por ejemplo con prefijo y año, está pendiente de aprobación.
+```mermaid
+stateDiagram-v2
+  [*] --> nuevo: crear_ticket
+  nuevo --> nuevo: tomar_ticket
+  reabierto --> reabierto: tomar_ticket
+  nuevo --> en_atencion: iniciar_atencion
+  reabierto --> en_atencion: iniciar_atencion
+  en_atencion --> resuelto: resolver_ticket
+  resuelto --> cerrado: cerrar_ticket
+  resuelto --> reabierto: reabrir_ticket
+  cerrado --> reabierto: reabrir_ticket
+```
 
-## Contrato de creación
+| Operación | Estado de origen | Quién | Efecto |
+| --- | --- | --- | --- |
+| `crear_ticket` | — | Técnico activo | Crea en `nuevo`, sin técnico, con número e historial `creado`. |
+| `tomar_ticket` | `nuevo` o `reabierto` | Técnico activo | Asigna el técnico; no cambia de estado. Registra `tomado`. |
+| `iniciar_atencion` | `nuevo` o `reabierto` | Técnico asignado | Pasa a `en_atencion` y registra la fecha de inicio. |
+| `resolver_ticket` | `en_atencion` | Técnico asignado | Exige solución; pasa a `resuelto` y registra la fecha. |
+| `cerrar_ticket` | `resuelto` | Técnico asignado | Pasa a `cerrado` y registra la fecha de cierre. |
+| `reabrir_ticket` | `resuelto` o `cerrado` | Técnico activo | Pasa a `reabierto`, quita la asignación, limpia fechas del ciclo y conserva la solución anterior como referencia y en el historial. |
 
-La creación se realiza mediante una única función RPC invocada por el cliente autenticado. La función:
+La toma y el inicio se separan para reservar trabajo sin iniciar la atención. La fila se bloquea con `FOR UPDATE` antes de cada transición, lo que impide tomas simultáneas y carreras de estado. Las operaciones repetidas por el mismo actor en un estado ya alcanzado devuelven el ticket sin duplicar el historial cuando la repetición es segura.
 
-1. Verifica que exista una sesión válida y un perfil de técnico activo.
-2. Valida campos obligatorios, longitudes, tipo de persona, canal y fecha.
-3. Comprueba que la categoría exista y esté activa.
-4. Deriva `technician_id` de `auth.uid()`, ignorando cualquier valor enviado por el cliente.
-5. Genera `code` y `created_at` en el servidor.
-6. Aplica idempotencia mediante `client_request_id` y `request_hash`.
-7. Inserta el ticket y el evento `ticket.created` en una sola transacción.
-8. Devuelve el ticket creado o un error normalizado.
+## Contrato de las funciones
 
-La función se define como `security definer` con `search_path` fijado y sin SQL dinámico, porque concentra las reglas de escritura y evita conceder DML directo. Al omitir RLS para su ejecución, la autorización depende de sus comprobaciones explícitas de sesión, perfil activo y datos; por eso debe revisarse y probarse en negativo como código sensible. El rol propietario de la función tiene permisos mínimos sobre el esquema y no se expone al cliente. El permiso de ejecución se concede solo al rol autenticado y se revoca para anónimos y públicos. El cliente no recibe permisos de `INSERT`, `UPDATE` ni `DELETE` sobre `tickets`.
+La creación y las transiciones se exponen como RPC `public.*` para el rol `authenticated`. Todas:
 
-Errores esperados, sin exponer detalles internos:
+1. Exigen sesión y perfil activo; las operaciones de tickets exigen además rol `tecnico`.
+2. Bloquean la fila antes de decidir una transición.
+3. Derivan el actor de `auth.uid()`; no aceptan un identificador de actor del cliente.
+4. Validan campos, longitudes, categoría activa y estado de origen.
+5. Actualizan el ticket y agregan el historial en la misma transacción.
+6. Devuelven la fila actualizada de `public.tickets`.
 
-| Código | Situación |
+Se definen como `security definer`, con `search_path = ''` y sin SQL dinámico. La ejecución se revoca para `public` y `anon`, y se concede solo a `authenticated`.
+
+La función `private.registrar_ticket` concentra la creación con un actor explícito. No depende de `auth.uid()`, exige que el actor tenga perfil activo con rol `tecnico`, no es accesible para `authenticated` y queda reservada a `service_role` como preparación para integraciones de servidor autorizadas. La interfaz no la usa.
+
+Errores normalizados (token en el mensaje, traducidos por la interfaz):
+
+| Token | Situación |
 | --- | --- |
-| `unauthenticated` | No hay sesión válida. |
-| `inactive_technician` | El perfil existe pero está inactivo. |
-| `invalid_input` | Falta un campo, excede longitud o el valor no está permitido. |
-| `inactive_category` | La categoría no existe o fue desactivada. |
-| `duplicate_request_conflict` | Se reutilizó `client_request_id` con contenido distinto. |
-| `internal_error` | Fallo no recuperable; no se creó el ticket. |
+| `no_autenticado` | No hay sesión válida. |
+| `perfil_inactivo` | El perfil no existe, está inactivo o no tiene el rol requerido. |
+| `datos_invalidos` | Falta un campo, excede longitud o el valor no está permitido. |
+| `categoria_inactiva` | La categoría no existe o fue desactivada. |
+| `ticket_no_encontrado` | El ticket no existe o no es visible. |
+| `transicion_invalida` | El estado no admite la operación solicitada. |
+| `ticket_ya_tomado` | Otro técnico tomó el ticket antes. |
+| `sin_asignacion` | La operación exige que el ticket esté asignado al técnico actual. |
+| `solucion_requerida` | La resolución no incluye una solución válida. |
+| `duplicate_request_conflict` | Se reutilizó la clave de idempotencia con contenido distinto. |
+| `historial_inmutable` | Se intentó modificar o borrar un evento. |
+| `ticket_no_eliminable` | Se intentó borrar un ticket. |
+| `internal_error` | Fallo interno de consistencia; la interfaz muestra un error genérico. No debería ocurrir en operación normal. |
 
 ## Idempotencia y concurrencia
 
-- `client_request_id` se genera una vez por intento de registro y se conserva mientras el borrador exista.
-- La combinación `(technician_id, client_request_id)` es única.
-- Si llega un reintento con el mismo identificador y el mismo `request_hash`, se devuelve el ticket existente sin crear otro.
-- Si el identificador coincide pero el contenido cambió, la operación se rechaza.
-- La huella del contenido no se devuelve al cliente ni se expone en consultas de tickets.
+- La interfaz genera una clave una vez por intento de creación y la reutiliza si el envío falla.
+- `clave_idempotencia` es única en `tickets`; la creación usa `INSERT ... ON CONFLICT DO NOTHING` y recupera la fila existente.
+- `huella_contenido` es un MD5 del contenido normalizado. Si la clave coincide y la huella y el actor también, se devuelve el ticket existente; si difieren, se rechaza con `duplicate_request_conflict`.
+- La huella no se usa en la interfaz ni se incluye en las consultas de listado.
 - La interfaz deshabilita el botón mientras guarda, pero la garantía real está en la base de datos.
 - Las pruebas deben cubrir dos confirmaciones simultáneas y un reintento tras perder la respuesta.
+- Las transiciones bloquean la fila; el segundo intento de toma recibe `ticket_ya_tomado`.
 
 ## Seguridad por filas (RLS)
 
-| Tabla | Anónimo | Técnico autenticado | Rol administrativo futuro |
+| Tabla | Anónimo | Técnico activo | Administrador activo |
 | --- | --- | --- | --- |
-| `technician_profiles` | Sin acceso. | Lee su propio perfil y los perfiles activos necesarios para mostrar el responsable. | Gestión completa auditada. |
-| `categories` | Sin acceso. | Lee categorías activas y las referencias históricas de tickets autorizados. | Crear, editar y desactivar con auditoría. |
-| `tickets` | Sin acceso. | Lee según la política de visibilidad acordada; no escribe directamente. | Sin acceso directo; usa operaciones auditadas. |
-| `audit_events` | Sin acceso. | Sin acceso por defecto; solo perfiles autorizados. | Lectura restringida. |
+| `profiles` | Sin acceso. | Lee su perfil y, por `profiles_select_active_staff`, todos los perfiles para atribución. | Lee todos los perfiles. No escribe desde el cliente. |
+| `catalogo_categorias` | Sin acceso. | Lee el catálogo completo. | Lee el catálogo completo. |
+| `tickets` | Sin acceso. | Lee todos los tickets del mostrador; no escribe directamente. | Lee todos los tickets; no ejecuta transiciones. |
+| `ticket_historial` | Sin acceso. | Lee el historial; no escribe directamente. | Lee el historial; no escribe directamente. |
 
 Reglas adicionales:
 
-- RLS habilitada en todas las tablas y políticas explícitas por operación; sin políticas comodín.
+- RLS habilitada en las cuatro tablas y políticas explícitas de `SELECT`; no hay políticas de `INSERT`, `UPDATE` ni `DELETE`.
 - El acceso anónimo se deniega por completo.
-- La política de lectura entre técnicos está pendiente. Se propone lectura compartida para las tres cuentas operativas, porque el servicio es un mostrador común; la alternativa es lectura solo de lo propio.
-- Las correcciones futuras de tickets no habilitan `UPDATE` libre: se harán mediante operaciones auditadas con campos permitidos.
-- Las claves `service_role` nunca se usan en el navegador ni en Edge Functions expuestas al usuario.
+- `public.is_active_staff()` y `public.is_active_technician()` son `security definer`, con `search_path` vacío y ejecución revocada para `public` y `anon`, para evitar recursión en RLS.
+- El usuario puede leer su propia fila aunque esté inactivo; las tablas de dominio exigen un perfil activo.
+- Las claves `service_role` nunca se usan en el navegador. La única función reservada a `service_role` es el núcleo privado de creación para futuras integraciones.
+- Las correcciones futuras no habilitan `UPDATE` libre: se harán mediante operaciones auditadas con campos permitidos.
 
-## Auditoría
+## Historial y auditoría
 
-- `ticket.created` se escribe en la misma transacción que el ticket.
-- Las futuras actualizaciones o anulaciones generan `ticket.updated` o `ticket.voided` con los campos modificados.
-- Los cambios de catálogo y permisos se auditan cuando esas operaciones existan.
-- Un trigger de protección impide `UPDATE` y `DELETE` sobre `audit_events`, incluso para roles de aplicación.
-- No se guarda el texto completo de la conversación ni datos personales innecesarios en `changes`.
-- La auditoría del dominio es independiente de los logs técnicos y no depende del proveedor de IA.
+- `creado` se escribe en la misma transacción que el ticket.
+- `tomado`, `iniciado`, `resuelto`, `cerrado` y `reabierto` se escriben con su transición.
+- El evento incluye actor, acción, estados y detalle acotado; no guarda conversaciones completas.
+- Un trigger impide `UPDATE` y `DELETE` sobre el historial.
+- El historial es la auditoría de dominio y es independiente de los logs técnicos o del proveedor de IA.
+- No se implementa una tabla genérica `audit_events`; el historial específico de tickets cubre la fase 1.
 
 ## Índices y rendimiento
 
 | Índice | Uso |
 | --- | --- |
-| Único en `tickets.code` | Búsqueda por código y garantía de unicidad. |
-| Único en `(technician_id, client_request_id)` | Idempotencia. |
-| `(attention_date desc, created_at desc)` | Listado cronológico. |
-| `(technician_id, attention_date desc)` | Filtro por técnico. |
-| `(category_id, attention_date desc)` | Filtro y agregaciones por categoría. |
-| `(person_type, attention_date desc)` | Filtro por tipo de persona. |
-| Búsqueda de texto en `person_name` | Se evaluará `pg_trgm` solo si la búsqueda parcial lo requiere. |
+| Único en `tickets.numero_ticket` | Búsqueda por número y garantía de unicidad. |
+| Único en `tickets.clave_idempotencia` | Idempotencia de creación. |
+| Único en `lower(btrim(catalogo_categorias.nombre))` | Evita categorías duplicadas. |
+| `(estado, fecha_creacion desc)` | Bandeja filtrada por estado. |
+| `(categoria_id, fecha_creacion desc)` | Filtro por categoría. |
+| `(tecnico_asignado_id, fecha_creacion desc)` | Trabajo por técnico. |
+| `(fecha_creacion desc)` | Listado general. |
+| `(ticket_id, creado_en, id)` | Historial cronológico. |
 
 El volumen esperado es bajo; no se justifican particiones, réplicas ni cachés adicionales en la primera versión.
 
 ## Migraciones y entornos
 
+Orden de aplicación:
+
+1. `20261026120000_create_profiles.sql`: tabla `profiles`, trigger, `is_admin()` y RLS.
+2. `20261026130000_create_ticket_foundation.sql`: helpers de personal, política de lectura de perfiles y `catalogo_categorias` con datos iniciales.
+3. `20261026131000_create_tickets.sql`: `tickets`, `ticket_historial`, triggers, índices, RLS y permisos.
+4. `20261026132000_create_ticket_rpc.sql`: funciones de creación y transiciones, esquema `private` e idempotencia.
+
+Reglas operativas:
+
 - Migraciones versionadas en `supabase/migrations`, revisadas en Pull Request.
+- No se aplican automáticamente ni desde la aplicación.
 - Un entorno local con Supabase CLI para desarrollo y pruebas.
-- Producción separada; las migraciones se aplican de forma controlada y nunca desde la aplicación.
+- Producción separada; las migraciones se aplican de forma controlada.
 - Cambios destructivos requieren respaldo previo y una migración compensatoria; no se edita una migración ya aplicada.
 - Los datos de prueba son sintéticos y no contienen información real de la comunidad educativa.
+- El aprovisionamiento de cuentas y perfiles se realiza manualmente; ver [supabase/README.md](../supabase/README.md).
 
 ## Trazabilidad de reglas
 
 | Regla | Mecanismo |
 | --- | --- |
-| RN-01 | No existe estado de ticket abierto; la interfaz declara atención resuelta. |
+| RN-01 | La creación fija `estado = 'nuevo'`, sin técnico ni solución. |
 | RN-02 | Secuencia, formato en servidor y restricción única. |
 | RN-03 | Columnas obligatorias, `CHECK` de tipo y FK de categoría. |
-| RN-04 | `technician_id` derivado de `auth.uid()` en la función. |
-| RN-05 | `location` opcional en `tickets`; no existe perfil de persona. |
-| RN-06 | El registro manual no depende de tablas ni funciones de IA. |
+| RN-04 | `tomar_ticket` deriva el técnico de `auth.uid()`. |
+| RN-05 | `ubicacion` opcional en `tickets`; no existe perfil de persona. |
+| RN-06 | El registro y las transiciones manuales no dependen de IA. |
 | RN-07 | El borrador no se escribe en `tickets` hasta confirmar. |
 | RN-08 | Solo la operación de creación confirmada inserta filas. |
 | RN-09 | La IA no recibe credenciales ni acceso a la base; solo la Edge Function autorizada. |
-| RN-10 | Evento de auditoría en la misma transacción y tabla inmutable. |
-| RN-11 | `channel = whatsapp` es un dato manual; no hay webhooks ni tablas de mensajes. |
-| RN-12 | La función de creación rechaza obligatorios ausentes; el borrador no escribe filas y no completa valores sin evidencia. |
+| RN-10 | `ticket_historial` en la misma transacción y con trigger de inmutabilidad. |
+| RN-11 | `canal_origen = 'whatsapp'` es un dato manual; no hay webhooks ni tablas de mensajes. |
+| RN-12 | La creación rechaza obligatorios ausentes; el borrador no completa valores sin evidencia. |
+| RN-13 | `CHECK` de estado y máquina de transiciones en las RPC. |
+| RN-14 | `is_active_technician()` dentro de cada RPC; RLS de lectura para personal activo. |
+| RN-15 | `CHECK` y validación de solución; asignación obligatoria para resolver. |
+| RN-16 | Trigger de borrado y trigger de inmutabilidad del historial. |
+| RN-17 | `SELECT ... FOR UPDATE` y `ticket_ya_tomado`. |
+| RN-18 | Clave única, huella de contenido y `ON CONFLICT`. |
+| RN-19 | `reabrir_ticket` limpia asignación y fechas; el evento conserva la solución. |
 
 ## Decisiones pendientes
 
-- Política de visibilidad y corrección entre técnicos.
-- Catálogo inicial de categorías y su mantenimiento.
-- Formato del código, zona horaria y reglas de fechas retrospectivas.
-- Obligatoriedad de descripción, solución y ubicación.
+- Catálogo definitivo de categorías y responsable de su mantenimiento.
+- Corrección de campos ya guardados sin reescribir el historial.
+- Formato definitivo del número, zona horaria institucional y reglas de fechas retrospectivas.
 - Retención, respaldo y restauración (RPO/RTO).
-- Mecanismo de alta y baja de técnicos.
+- Responsable institucional del alta, baja y cambios de rol de técnicos; el procedimiento técnico está en [supabase/README.md](../supabase/README.md).
+- Reasignación de los tickets que quedan asignados a un técnico desactivado (DP-09); mientras no se defina, el ticket no puede operarse ni tomarse por otro técnico.
 
 Véanse [arquitectura](architecture.md), [reglas de negocio](business-rules.md) y [decisiones](decisions.md).

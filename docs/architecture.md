@@ -2,22 +2,25 @@
 
 ## Estado y alcance
 
-Diseño propuesto para la fase 0. No existe todavía implementación. El sistema registra atenciones ya solucionadas para una institución educativa y tres técnicos generalistas. No contempla recepción de incidencias abiertas, asignación por especialidad ni integración directa con WhatsApp en la primera versión.
+Implementación parcial de la fase 1. Existen la aplicación React con autenticación, los perfiles con RLS y el módulo de tickets con su ciclo de vida, historial y operaciones en PostgreSQL. La IA, el chatbot, RAG, voz, reportes y el despliegue siguen pendientes.
+
+Los técnicos registran incidencias antes de atenderlas, las toman de una cola compartida, inician la atención, registran la solución, cierran el ticket y pueden reabrirlo. No se contempla asignación por especialidad, SLA ni integración directa con WhatsApp en la primera versión.
 
 ## Componentes y responsabilidades
 
 | Componente | Responsabilidad | Límites |
 | --- | --- | --- |
-| Aplicación React, TypeScript y Vite | Formularios manuales, consultas, borrador del chatbot y confirmación explícita. | No contiene secretos ni decide permisos por sí sola. |
+| Aplicación React, TypeScript y Vite | Bandeja, formulario manual, detalle, historial y acciones del ciclo de vida. | No contiene secretos ni decide permisos por sí sola. |
 | Tailwind CSS | Presentación adaptable y estados visuales consistentes. | No sustituye validaciones ni accesibilidad semántica. |
-| Supabase Auth | Identidad, inicio y cierre de sesión y emisión de credenciales de sesión. | El mecanismo de alta de técnicos está pendiente. |
-| PostgreSQL | Persistencia, integridad, código único, transacciones y auditoría. | No acepta identidad del técnico como dato confiable del navegador. |
-| RLS | Autorizar acceso a filas según identidad y política institucional. | Las políticas deben cubrir todas las tablas expuestas. |
+| Supabase Auth | Identidad, inicio y cierre de sesión y emisión de credenciales de sesión. | El alta es manual con un rol de confianza; el responsable institucional está pendiente (DP-05). |
+| PostgreSQL | Persistencia, integridad, numeración, transiciones, historial y autorización efectiva. | No acepta identidad del técnico ni estados como datos confiables del navegador. |
+| RLS | Autorizar lectura de perfiles, categorías, tickets e historial según identidad. | Las políticas deben cubrir todas las tablas expuestas. |
+| Funciones RPC | Concentrar creación y transiciones con validación, bloqueo e historial atómico. | No conceden DML libre ni aceptan actores del cliente. |
 | Edge Functions | Validar peticiones, coordinar IA y exponer herramientas seguras. | No ejecutan SQL arbitrario solicitado por el modelo. |
 | Adaptador de IA | Traducir solicitudes y respuestas entre el dominio y cada proveedor. | Su contrato usa datos estructurados independientes del proveedor. |
 | Proveedor de IA | Interpretar texto y sugerir clasificación o contenido. | No guarda tickets ni recibe credenciales de base de datos. |
 | pgvector, fase posterior | Recuperar fragmentos autorizados para RAG. | Requiere evaluación de privacidad, acceso y calidad del corpus. |
-| GitHub Actions | Automatizar verificaciones y despliegues cuando exista código. | Secretos separados por entorno y permisos mínimos. |
+| GitHub Actions | Automatizar verificaciones y despliegues cuando exista CI. | Secretos separados por entorno y permisos mínimos. |
 | Cloudflare | Publicar la aplicación web compilada. | Auth, datos y funciones permanecen en Supabase. |
 
 ## Vista de componentes y límites de confianza
@@ -29,7 +32,7 @@ flowchart LR
   end
   subgraph Supabase["Supabase · servidor institucional"]
     AUTH["Auth"]
-    DB[("PostgreSQL<br/>RLS · código único · auditoría")]
+    DB[("PostgreSQL<br/>RLS · RPC · historial")]
     EDGE["Edge Functions<br/>validación · adaptador de IA"]
   end
   subgraph Externo["Proveedor externo"]
@@ -39,7 +42,7 @@ flowchart LR
 
   CF --> UI
   UI -->|"credenciales"| AUTH
-  UI -->|"lectura y creación bajo RLS"| DB
+  UI -->|"lectura bajo RLS y RPC de tickets"| DB
   UI -->|"texto mínimo del borrador"| EDGE
   EDGE -->|"catálogo y contexto autorizado"| DB
   EDGE -->|"entrada mínima"| LLM
@@ -50,102 +53,129 @@ El proveedor de IA no tiene ruta hacia PostgreSQL. Toda escritura nace de una ac
 
 **Límites de confianza**
 
-- **Navegador:** cualquier dato puede ser manipulado. No se confía en la identidad, el rol, el código, el responsable ni las fechas enviadas por el cliente.
-- **Servidor Supabase:** única fuente de autorización. Auth identifica, RLS restringe filas y la operación de creación valida y genera el código.
+- **Navegador:** cualquier dato puede ser manipulado. No se confía en la identidad, el rol, el número, el técnico asignado ni las fechas enviadas por el cliente.
+- **Servidor Supabase:** única fuente de autorización. Auth identifica, RLS restringe filas y las RPC validan transiciones, generan el número y escriben el historial.
 - **Proveedor de IA:** recibe solo la información necesaria, nunca credenciales. Su salida es datos no confiables hasta pasar la validación del servidor.
-- **Cloudflare:** sirve artefactos estáticos. No aloja secretos, lógica de dominio ni datos de atenciones.
+- **Cloudflare:** sirve artefactos estáticos. No aloja secretos, lógica de dominio ni datos de tickets.
 
 ## Organización lógica
 
-Se propone separar interfaz, casos de uso, contratos del dominio e infraestructura cuando comience la implementación. El registro manual y el asistido utilizarán la misma operación de creación y las mismas reglas de validación. El adaptador de IA evitará acoplar formularios, tickets y categorías al formato de un proveedor.
-
-No se crean todavía carpetas de código ni se fija un framework adicional. La siguiente estructura es una propuesta para la fase 1, sujeta a revisión y coherente con el repositorio actual:
+La implementación separa interfaz, contratos del dominio e infraestructura. El registro manual y el futuro registro asistido usarán la misma operación de creación y las mismas reglas de validación. El adaptador de IA evitará acoplar formularios, tickets y categorías al formato de un proveedor.
 
 ```text
-src/
-  app/            arranque, rutas y composición de dependencias
+frontend/src/
+  components/     guards de rutas, layout y estados de pantalla
+  domain/         tipos, validaciones, permisos y parseo de tickets y perfiles
   features/
-    auth/         inicio y cierre de sesión
-    tickets/      registro manual, consulta y filtros
-    assistant/    chat, borrador y confirmación
-  domain/         tipos, validaciones y reglas independientes de la interfaz
-  lib/            cliente de Supabase y utilidades compartidas
-  components/     componentes de interfaz reutilizables
+    auth/         contexto, proveedor, hook y servicio de autenticación
+    tickets/      servicio, errores y componentes del ciclo de vida
+  lib/            configuración de entorno y cliente de Supabase
+  pages/          login, panel, bandeja, alta, detalle y estados de error
 supabase/
-  migrations/     esquema, RLS, funciones y auditoría versionados
-  functions/      Edge Functions de IA y validación
+  migrations/     perfiles, catálogo, tickets, historial, RLS y RPC
 docs/             documentación del proyecto
 ```
 
-Los límites entre `features` y `domain` permiten reutilizar validaciones en el navegador y en servidor sin duplicar reglas. La estructura definitiva se aprobará al iniciar la fase 1.
+`features/tickets` contiene la consulta y las llamadas RPC, pero no replica reglas de autorización: la decisión final está en PostgreSQL. `domain/ticket.ts` concentra tipos, etiquetas, validaciones de formulario y cálculo de acciones visibles. Las carpetas `features/assistant` y `supabase/functions` se incorporarán en la fase 2. Las integraciones futuras usarán el núcleo privado de creación en servidor y no la sesión del navegador.
 
 ## Modelo conceptual de datos
 
 | Entidad | Datos y restricciones principales |
 | --- | --- |
-| Perfil de técnico | Referencia a la identidad de Auth, nombre y condición de acceso. Tres usuarios iniciales, sin especialidades obligatorias. |
-| Categoría | Identificador estable, nombre y vigencia. Desactivar una categoría debe conservar las referencias históricas. |
-| Ticket de atención resuelta | Identificador interno, código público único, categoría, nombre y tipo de persona atendida, técnico responsable y fecha de atención. Ubicación opcional. |
-| Evento de auditoría | Actor autenticado, operación, entidad, identificador, instante y cambios relevantes, con acceso restringido. |
+| Perfil | Referencia a la identidad de Auth, nombre, rol y condición de acceso. Tres usuarios iniciales, sin especialidades obligatorias. |
+| Categoría | Identificador estable, nombre y vigencia. Desactivar una categoría conserva las referencias históricas. |
+| Ticket | Identificador interno, número público único, asunto, descripción, categoría, solicitante, ubicación opcional, canal, estado, técnico asignado, solución y fechas del ciclo. |
+| Historial | Evento de solo adición con actor, acción, estados anterior y nuevo, detalle y fecha. |
 | Documento y fragmento de conocimiento | Entidades futuras para contenido aprobado, procedencia, permisos y representaciones vectoriales. |
 
 ```mermaid
 erDiagram
-  PERFIL_TECNICO ||--o{ TICKET : registra
+  PERFIL ||--o{ TICKET : registra
+  PERFIL ||--o{ TICKET : atiende
   CATEGORIA ||--o{ TICKET : clasifica
-  TICKET ||--o{ EVENTO_AUDITORIA : genera
-  PERFIL_TECNICO ||--o{ EVENTO_AUDITORIA : actua
+  TICKET ||--o{ HISTORIAL : genera
+  PERFIL ||--o{ HISTORIAL : actua
   DOCUMENTO_CONOCIMIENTO ||--o{ FRAGMENTO_CONOCIMIENTO : contiene
 
-  PERFIL_TECNICO {
+  PERFIL {
     uuid id PK
-    text nombre
+    text nombres
+    text apellidos
+    text rol
     boolean activo
   }
   CATEGORIA {
     uuid id PK
     text nombre
-    boolean vigente
+    boolean activo
   }
   TICKET {
     uuid id PK
-    text codigo UK
+    text numero_ticket UK
     uuid categoria_id FK
-    uuid tecnico_id FK
-    text nombre_persona
-    text tipo_persona
-    date fecha_atencion
-    text ubicacion "opcional"
+    uuid tecnico_asignado_id FK
+    text solicitante_nombre
+    text solicitante_tipo
+    text estado
+    timestamptz fecha_creacion
   }
-  EVENTO_AUDITORIA {
-    uuid id PK
+  HISTORIAL {
+    bigint id PK
+    uuid ticket_id FK
     uuid actor_id FK
-    text entidad
-    text operacion
-    timestamptz ocurrido_en
+    text accion
+    text estado_anterior
+    text estado_nuevo
+    timestamptz creado_en
   }
 ```
 
-Los nombres son conceptuales y podrán ajustarse en las migraciones; no constituyen un esquema aprobado. `DOCUMENTO_CONOCIMIENTO` y `FRAGMENTO_CONOCIMIENTO` corresponden a la fase 4.
+Los nombres de las entidades conceptuales se corresponden con las tablas `profiles`, `catalogo_categorias`, `tickets` y `ticket_historial`. `DOCUMENTO_CONOCIMIENTO` y `FRAGMENTO_CONOCIMIENTO` corresponden a la fase 4.
 
-Se propone registrar también descripción del problema, solución aplicada, canal y fecha de creación. Su obligatoriedad debe aprobarse antes del esquema. La fecha de atención expresa cuándo ocurrió el servicio; la fecha de creación es un dato técnico asignado por el servidor. La zona horaria institucional está pendiente de confirmación.
+La ubicación pertenece exclusivamente al ticket. No se propone un maestro de docentes con ubicación permanente ni una tabla de personas como requisito inicial. Los nombres pueden repetirse y no constituyen identificadores únicos.
 
-La ubicación pertenece exclusivamente a la atención. No se propone un maestro de docentes con ubicación permanente ni una tabla de personas como requisito inicial. Los nombres pueden repetirse y no constituyen identificadores únicos.
-
-PostgreSQL generará el código mediante un mecanismo atómico, con restricción de unicidad. Su formato visible queda pendiente; una secuencia puede tener saltos y no debe prometer numeración continua. El identificador interno y el código público cumplen responsabilidades distintas.
+PostgreSQL genera el número mediante una secuencia atómica y una restricción de unicidad. Una secuencia puede tener saltos y no debe prometer numeración continua. El identificador interno y el número público cumplen responsabilidades distintas.
 
 ## Flujos de datos
 
 ### Registro manual
 
 1. El técnico inicia sesión mediante Auth.
-2. Completa el formulario de atención resuelta y revisa sus datos.
-3. La aplicación solicita la creación usando su sesión.
-4. La operación de base de datos valida permisos, campos y referencias; obtiene al responsable de la identidad autenticada y genera el código.
-5. La misma transacción guarda ticket y auditoría. Si falla cualquiera, se revierte la operación.
-6. La interfaz muestra el código devuelto por PostgreSQL y el resultado de la operación.
+2. Completa el formulario con asunto, descripción, categoría, solicitante, ubicación opcional y canal.
+3. La aplicación solicita `crear_ticket` usando su sesión y una clave de idempotencia.
+4. PostgreSQL valida permisos, campos y categoría; deriva el creador de la identidad autenticada y genera el número.
+5. La misma transacción guarda el ticket en `nuevo` y el evento `creado`. Si falla cualquiera, se revierte la operación.
+6. La interfaz muestra el número devuelto y enlaza al detalle.
 
-La implementación podrá usar una operación de base de datos controlada para creación; su contrato debe impedir que el cliente suplante al responsable. No requiere invocar al proveedor de IA.
+La creación no asigna técnico ni solución. No requiere invocar al proveedor de IA.
+
+### Ciclo de vida
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor T as Técnico
+  participant UI as Interfaz
+  participant DB as PostgreSQL
+  T->>UI: Abre un ticket de la cola
+  UI->>DB: tomar_ticket(id)
+  DB->>DB: Bloquea la fila y asigna auth.uid()
+  DB-->>UI: Ticket asignado en estado nuevo
+  T->>UI: Inicia la atención
+  UI->>DB: iniciar_atencion(id)
+  DB->>DB: Valida asignación y pasa a en_atencion
+  T->>UI: Escribe la solución y resuelve
+  UI->>DB: resolver_ticket(id, solución)
+  DB->>DB: Exige solución, pasa a resuelto
+  T->>UI: Confirma el cierre
+  UI->>DB: cerrar_ticket(id)
+  DB->>DB: Pasa a cerrado
+  DB-->>UI: Ticket e historial actualizados
+```
+
+Si el problema reaparece, `reabrir_ticket` devuelve el ticket a `reabierto`, quita la asignación y limpia las fechas del ciclo. La solución anterior permanece en el historial y la fila conserva el texto para mostrarlo como solución previa.
+
+Todas las transiciones bloquean la fila antes de actuar. Un segundo técnico que intenta tomar el mismo ticket recibe `ticket_ya_tomado`; una transición desde un estado incorrecto recibe `transicion_invalida`.
 
 ### Registro asistido
 
@@ -154,7 +184,7 @@ La implementación podrá usar una operación de base de datos controlada para c
 3. El adaptador solicita una propuesta estructurada al proveedor.
 4. El servidor valida la respuesta y devuelve un borrador sin persistir tickets.
 5. El técnico corrige el borrador y confirma expresamente.
-6. Se ejecuta la misma operación de creación del flujo manual, con validación actualizada de sesión y catálogo.
+6. Se ejecuta la misma operación `crear_ticket` del flujo manual, con validación actualizada de sesión y catálogo.
 
 ```mermaid
 sequenceDiagram
@@ -165,7 +195,7 @@ sequenceDiagram
   participant P as Proveedor de IA
   participant DB as PostgreSQL
 
-  T->>UI: Describe la atención resuelta
+  T->>UI: Describe la incidencia
   UI->>E: Texto + sesión
   E->>E: Valida sesión, tamaño y frecuencia
   E->>DB: Consulta catálogo vigente autorizado
@@ -175,9 +205,9 @@ sequenceDiagram
   E-->>UI: Borrador + campos faltantes
   UI-->>T: Vista previa editable
   T->>UI: Corrige y confirma
-  UI->>DB: Creación con sesión e idempotencia
-  DB->>DB: Revalida, genera código y audita
-  DB-->>UI: Código definitivo
+  UI->>DB: crear_ticket con sesión e idempotencia
+  DB->>DB: Revalida, genera número e historial
+  DB-->>UI: Número definitivo
   UI-->>T: Ticket registrado
 ```
 
@@ -185,44 +215,55 @@ Si la propuesta no supera la validación, el flujo continúa en modo manual sin 
 
 ### Consulta y análisis
 
-La interfaz consulta tickets con la identidad del técnico; RLS restringe los resultados. Las agregaciones y futuras herramientas de IA deben respetar los mismos límites de acceso. La política de lectura compartida entre los tres técnicos está pendiente; no se presume acceso total.
+La interfaz consulta tickets con la identidad del técnico; RLS permite la lectura compartida al personal activo. Las agregaciones y futuras herramientas de IA deben respetar los mismos límites de acceso. El rol `admin` activo puede supervisar la lectura, pero no ejecutar transiciones.
 
 ## Seguridad y auditoría
 
-- Denegar acceso anónimo a información de atenciones y aplicar permisos mínimos.
-- Resolver el responsable en el servidor a partir de la sesión verificada. Rechazar intentos de suplantación.
+- Denegar acceso anónimo a información de tickets, categorías, perfiles e historial y aplicar permisos mínimos.
+- Resolver el técnico asignado y el actor del historial en el servidor a partir de la sesión verificada. Rechazar intentos de suplantación.
 - Mantener las credenciales del proveedor de IA en el servidor. Las claves administrativas de Supabase no se incluyen en el navegador, prompts ni respuestas.
-- Preferir operaciones bajo la identidad del usuario y RLS. La creación de tickets es la única excepción privilegiada prevista: una función acotada, revisada y probada, con `search_path` fijado y sin SQL dinámico. Cualquier otra excepción exige alcance limitado y autorización explícita en servidor.
-- Implementar auditoría en base de datos para evitar que un cliente pueda omitirla. Como mínimo cubre creación y cambios relevantes en tickets; cambios de categorías y permisos se cubrirán cuando dichas operaciones existan.
-- Proteger el registro de auditoría contra edición y eliminación por técnicos; evitar duplicar datos personales o secretos innecesarios.
-- No asumir que el historial del proveedor o los logs de infraestructura sustituyen la auditoría del dominio.
+- La escritura de tickets ocurre únicamente mediante RPC acotadas, `security definer`, con `search_path` fijado y sin SQL dinámico. El cliente no recibe DML directo.
+- La función privada con actor explícito queda reservada a `service_role` para futuras integraciones; no acepta llamadas del navegador.
+- El historial es de solo adición y se escribe en la misma transacción que la transición. Un trigger impide modificarlo o borrarlo.
+- No se permite borrado físico de tickets; un trigger lo rechaza.
+- No se asume que el historial del proveedor o los logs de infraestructura sustituyen la auditoría del dominio.
 
 ## Operación y evolución
 
-Separar desarrollo y producción antes del despliegue. Versionar migraciones cuando existan, definir copias de seguridad y probar restauración. Incorporar logs con identificadores de correlación y sin transcripciones personales por defecto.
+Separar desarrollo y producción antes del despliegue. Versionar migraciones, definir copias de seguridad y probar restauración. Incorporar logs con identificadores de correlación y sin transcripciones personales por defecto.
 
-Los errores de IA deben permitir continuar manualmente. Los errores de guardado deben conservar el borrador en la interfaz y evitar duplicados durante reintentos; la estrategia de idempotencia se concretará en fase 1.
+Los errores de IA deben permitir continuar manualmente. Los errores de guardado deben conservar los datos del formulario y evitar duplicados durante reintentos mediante la clave de idempotencia. Las migraciones de tickets deben aplicarse en el orden documentado en [diseño de base de datos](database-design.md).
 
 ## Decisiones de arquitectura
 
 | ID | Decisión | Estado | Justificación |
 | --- | --- | --- | --- |
-| DA-01 | Supabase reúne Auth, PostgreSQL, RLS y Edge Functions. | Aceptada por el stack definido. | Reduce operación para un equipo pequeño y mantiene identidad y datos en el mismo perímetro. |
-| DA-02 | La creación de tickets se realiza mediante una operación controlada en base de datos, no con inserción directa desde el cliente. | Propuesta. | Permite derivar el responsable de la sesión, generar el código y auditar en una sola transacción. |
-| DA-03 | El código público se genera con un mecanismo atómico de PostgreSQL y restricción de unicidad. | Propuesta. | Cumple RN-02 sin coordinación desde la interfaz ni la IA. |
-| DA-04 | La IA se consume mediante un adaptador con contrato estructurado propio. | Aceptada por RNF-04. | Evita acoplar el dominio al formato de un proveedor. |
-| DA-05 | Los borradores del chatbot permanecen en memoria de la interfaz durante la fase 2. | Propuesta. | Evita persistir conversaciones sin política de conservación; implica pérdida al recargar. |
-| DA-06 | Cloudflare publica solo artefactos estáticos. | Propuesta. | Mantiene la lógica de dominio y los secretos fuera del borde. |
-| DA-07 | La auditoría se escribe en PostgreSQL dentro de la transacción de la operación. | Propuesta. | El cliente no puede omitirla y un fallo revierte el cambio (RN-10). |
+| DA-01 | Supabase reúne Auth, PostgreSQL, RLS y Edge Functions. | Aceptada | Reduce operación y mantiene identidad y datos en el mismo perímetro. |
+| DA-02 | La creación de tickets se realiza mediante una operación controlada en base de datos, no con inserción directa desde el cliente. | Aceptada | Permite derivar el creador, generar el número y auditar en una sola transacción. |
+| DA-03 | El número público se genera con una secuencia atómica de PostgreSQL y restricción de unicidad. | Aceptada | Cumple RN-02 sin coordinación desde la interfaz ni la IA. |
+| DA-07 | El historial se escribe en PostgreSQL dentro de la transacción de la operación. | Aceptada | El cliente no puede omitirlo y un fallo revierte el cambio (RN-10). |
+| DA-17 | Organización del código por `features` y `domain`. | Aceptada | Permite reutilizar validaciones y probar sin interfaz. |
+| DA-19 | Los perfiles operativos viven en `public.profiles`, 1:1 con `auth.users`. | Aceptada | El navegador no puede escribir perfiles ni autoasignarse privilegios. |
+| DA-21 | El frontend usa solo la URL y la clave publicable o `anon`. | Aceptada | La autorización depende de RLS, no de secretos embebidos. |
+| DA-22 | El ciclo de vida usa cinco estados y separa toma de inicio. | Aceptada | Permite reservar trabajo y conserva trazabilidad de cada paso. |
+| DA-23 | Lectura compartida para personal activo; operaciones solo para técnicos activos. | Aceptada | El servicio es un mostrador común; el rol administrativo queda en solo lectura. |
+| DA-25 | La idempotencia usa una clave única y una huella del contenido. | Aceptada | Evita duplicados y detecta la reutilización con datos distintos. |
+| DA-26 | El número visible usa `TS-` y una secuencia de 6 dígitos. | Aceptada como formato provisional | Cumple RN-02; el formato definitivo se confirma en DP-04. |
+| DA-27 | El catálogo inicial de categorías es provisional y de solo lectura para el cliente. | Aceptada como provisional | Permite operar sin bloquear la fase 1; el mantenimiento sigue pendiente. |
+| DA-28 | El historial específico de tickets sustituye a una tabla genérica de auditoría. | Aceptada | Cubre las transiciones de fase 1 con menos superficie y reglas claras. |
+| DA-29 | La reapertura devuelve el ticket a la cola sin técnico y conserva la solución previa en el historial. | Aceptada | Evita reutilizar una solución obsoleta y mantiene la trazabilidad. |
+| DA-30 | Las integraciones externas usarán el núcleo privado de creación con actor explícito. | Aceptada como preparación | Permite incorporar canales sin sesión de técnico sin exponerlo al cliente. |
 
 El registro completo, con contexto, consecuencias y decisiones pendientes, está en [decisiones](decisions.md). El detalle de tablas, políticas RLS e idempotencia está en [diseño de base de datos](database-design.md).
 
 ## Decisiones pendientes
 
-- Visibilidad, edición, corrección del responsable y eventual anulación de tickets; no se autoriza borrado físico por defecto.
-- Catálogo de categorías, responsables de su mantenimiento y campos obligatorios adicionales.
-- Formato de código, precisión de la fecha de atención, zona horaria y posibilidad de registros retrospectivos.
+- Catálogo definitivo de categorías y responsable de su mantenimiento.
+- Corrección de campos ya guardados sin reescribir el historial.
+- Formato definitivo del número, zona horaria y posibilidad de fechas retrospectivas.
 - Proveedor de IA, residencia y conservación de datos, presupuesto y límites de uso.
 - Modalidad de publicación en Cloudflare, dominios, entornos y objetivos de recuperación.
+- Responsable institucional del alta, baja y cambios de rol de técnicos.
+- Reasignación de tickets cuando el técnico asignado se desactiva o deja de estar disponible (DP-09).
 
 Véanse [reglas de negocio](business-rules.md), [requisitos](requirements.md), [diseño de base de datos](database-design.md), [diseño de IA](ai-design.md), [hoja de ruta](roadmap.md) y [decisiones](decisions.md).

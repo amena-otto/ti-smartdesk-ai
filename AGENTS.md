@@ -4,11 +4,11 @@ Instrucciones permanentes para cualquier agente o persona que trabaje en TI Smar
 
 ## Contexto del proyecto
 
-TI SmartDesk AI registra y analiza atenciones de soporte TI ya solucionadas en una institución educativa. Lo usan tres técnicos generalistas y atiende a estudiantes, docentes y administrativos, de forma presencial o a través de un número institucional compartido de WhatsApp Business.
+TI SmartDesk AI registra y analiza tickets de soporte TI de una institución educativa. Los técnicos crean el ticket antes de atender la incidencia, lo toman de una cola compartida, inician la atención, registran la solución, lo cierran y pueden reabrirlo. Lo usan tres técnicos generalistas y atiende a estudiantes, docentes y administrativos, de forma presencial o a través de un número institucional compartido de WhatsApp Business.
 
 La primera versión **no integra WhatsApp técnicamente**: el canal se registra como dato y el texto se aporta manualmente. El chatbot propone una clasificación y un borrador editable; el técnico confirma antes de guardar.
 
-Estado actual: **fase 0, solo documentación**. No existen aplicación, migraciones, dependencias ni workflows.
+Estado actual: **fase 1 en curso**. Existen el frontend React con autenticación, las migraciones de perfiles, catálogo, tickets e historial con RLS y RPC, y pruebas unitarias. Todavía no hay IA, chatbot, RAG, voz, reportes ni workflows de CI.
 
 ## Fuentes de verdad
 
@@ -18,6 +18,7 @@ Estado actual: **fase 0, solo documentación**. No existen aplicación, migracio
 | Requisitos y criterios | [docs/requirements.md](docs/requirements.md) |
 | Arquitectura y límites | [docs/architecture.md](docs/architecture.md) |
 | Base de datos, RLS y auditoría | [docs/database-design.md](docs/database-design.md) |
+| Operación de Supabase | [supabase/README.md](supabase/README.md) |
 | Diseño de IA | [docs/ai-design.md](docs/ai-design.md) |
 | Fases y aceptación | [docs/roadmap.md](docs/roadmap.md) |
 | Flujo de trabajo | [docs/github-workflow.md](docs/github-workflow.md) |
@@ -29,18 +30,24 @@ Si el código y la documentación difieren, se detiene el cambio y se resuelve l
 
 ## Reglas de negocio no negociables
 
-1. Solo se registran atenciones ya solucionadas.
-2. El código del ticket lo genera PostgreSQL; nunca el cliente ni la IA.
-3. Se registran categoría, nombre y tipo de persona, técnico responsable y fecha.
-4. El técnico responsable se deriva de la sesión autenticada.
-5. La ubicación es opcional y pertenece a la atención, no a la persona.
-6. El registro manual funciona sin IA.
+1. Los tickets se crean antes de atender la incidencia y describen el problema reportado.
+2. El número del ticket lo genera PostgreSQL; nunca el cliente ni la IA.
+3. Se registran asunto, descripción, categoría, nombre y tipo de solicitante y canal de origen; la ubicación es opcional.
+4. El técnico asignado se deriva de la sesión autenticada al tomar el ticket.
+5. La ubicación pertenece al ticket, no a la persona.
+6. El registro y las transiciones manuales funcionan sin IA.
 7. La IA interpreta, clasifica y prepara un borrador editable.
 8. Ningún ticket se guarda desde el chatbot sin confirmación explícita del técnico.
 9. La IA no tiene acceso administrativo directo a la base de datos.
-10. Toda modificación relevante queda auditada.
+10. Cada transición relevante queda registrada en un historial inmutable.
 11. WhatsApp no se integra directamente en la primera versión.
 12. La IA no inventa datos faltantes: los deja pendientes o pide aclaración.
+13. El ciclo de vida es `nuevo` → `en_atencion` → `resuelto` → `cerrado`; un ticket resuelto o cerrado puede reabrirse.
+14. Solo un técnico activo crea, toma, inicia, resuelve, cierra o reabre; el rol `admin` activo solo consulta.
+15. La solución es obligatoria para resolver y solo la registra el técnico asignado.
+16. No se elimina físicamente un ticket ni se modifica su historial.
+17. Dos técnicos no pueden tomar el mismo ticket a la vez.
+18. Un reintento de creación no duplica el ticket.
 
 ## Arquitectura en una frase
 
@@ -102,6 +109,8 @@ Límites de confianza:
 - Datos sintéticos únicamente.
 - No reducir pruebas para hacer pasar un cambio.
 - Antes de cerrar una tarea: ejecutar lint, tipos, pruebas y build cuando existan.
+- En `frontend`: `npm run lint`, `npm run test` y `npm run build`.
+- Las pruebas unitarias no sustituyen la verificación de RLS contra un proyecto Supabase controlado.
 
 ## Documentación
 
@@ -110,10 +119,13 @@ Límites de confianza:
 - Los requisitos mantienen identificadores estables (`RF-xx`, `RNF-xx`); las reglas, `RN-xx`.
 - No se presentan propuestas como funcionalidades implementadas.
 - Los enlaces internos deben apuntar a archivos existentes.
+- La aplicación de migraciones y el alta de cuentas se documentan en [supabase/README.md](supabase/README.md).
 
 ## Restricciones actuales
 
-- No crear código React, SQL ejecutable, migraciones ni workflows en la fase 0 sin aprobación explícita.
+- No implementar chatbot, RAG, voz, reportes ni workflows de CI sin una tarea aprobada.
+- No modificar el ciclo de vida de tickets ni sus permisos sin actualizar reglas, requisitos, migraciones y pruebas.
+- No ejecutar migraciones en un proyecto Supabase remoto sin autorización explícita.
 - No instalar dependencias para tareas de documentación.
 - No integrar WhatsApp, voz, RAG ni analítica antes de su fase.
 - No realizar commits, push ni Pull Requests si la tarea lo prohíbe.
@@ -133,4 +145,4 @@ Un cambio está terminado cuando:
 
 ## Decisiones bloqueantes
 
-Antes de la fase 1 deben resolverse: catálogo de categorías, visibilidad entre técnicos, campos obligatorios, formato de código y fechas, y alta de técnicos. Antes de la fase 2: proveedor de IA, presupuesto y tratamiento de datos. El detalle está en [docs/decisions.md](docs/decisions.md).
+Antes de completar la fase 1 deben resolverse: catálogo de categorías (DP-01), política de correcciones (DP-02), formato del número y fechas (DP-04), responsable del alta y baja de técnicos (DP-05) y reasignación de tickets de técnicos desactivados (DP-09). Antes de la fase 2: proveedor de IA, presupuesto y tratamiento de datos (DP-06). El detalle está en [docs/decisions.md](docs/decisions.md).
