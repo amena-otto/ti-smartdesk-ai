@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { NewTicketPage } from './pages/NewTicketPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { PublicReportPage } from './pages/PublicReportPage';
 import { TicketDetailPage } from './pages/TicketDetailPage';
 import { TicketsPage } from './pages/TicketsPage';
 
@@ -21,6 +22,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="reportar" element={<PublicReportPage />} />
           <Route element={<PublicOnlyRoute />}>
             <Route path="login" element={<LoginPage />} />
           </Route>

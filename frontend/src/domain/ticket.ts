@@ -23,6 +23,7 @@ export const CANALES_ORIGEN = [
   'ia',
   'whatsapp',
   'correo',
+  'web',
 ] as const;
 
 export type CanalOrigen = (typeof CANALES_ORIGEN)[number];
@@ -64,6 +65,8 @@ export type Ticket = {
   categoriaNombre: string | null;
   solicitanteNombre: string;
   solicitanteTipo: SolicitanteTipo;
+  solicitanteDni?: string | null;
+  solicitanteCorreo?: string | null;
   ubicacion: string | null;
   canalOrigen: CanalOrigen;
   estado: TicketEstado;
@@ -83,7 +86,7 @@ export type TicketHistorialItem = {
   accion: TicketAccion;
   estadoAnterior: TicketEstado | null;
   estadoNuevo: TicketEstado;
-  actorId: string;
+  actorId: string | null;
   actorNombre: string | null;
   detalle: string | null;
   creadoEn: string;
@@ -189,6 +192,8 @@ export function getCanalOrigenLabel(canal: CanalOrigen): string {
       return 'WhatsApp';
     case 'correo':
       return 'Correo';
+    case 'web':
+      return 'Web';
   }
 }
 

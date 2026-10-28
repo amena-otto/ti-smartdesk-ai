@@ -11,10 +11,13 @@ supabase/
     20261026130000_create_ticket_foundation.sql Helpers de personal, lectura de perfiles y catálogo
     20261026131000_create_tickets.sql           Tickets, historial, triggers, índices y RLS
     20261026132000_create_ticket_rpc.sql        RPC del ciclo de vida, esquema private e idempotencia
+    20261028150000_create_public_incident_intake.sql Catálogos, campos públicos, RLS y RPC de alta web
+  functions/
+    registrar-incidencia-publica/index.ts       Puerta pública validada y limitada
   README.md                                     Este documento
 ```
 
-No hay configuración de proyecto enlazado, funciones Edge ni datos iniciales distintos del catálogo provisional. La aplicación no ejecuta migraciones.
+No hay configuración de proyecto enlazado. La función Edge se versiona en este repositorio, pero la aplicación no ejecuta migraciones ni despliegues automáticamente.
 
 ## Orden de aplicación
 
@@ -24,6 +27,24 @@ Las migraciones son dependientes y deben aplicarse exactamente en este orden:
 2. `20261026130000_create_ticket_foundation.sql`: requiere `profiles`; crea `is_active_staff()`, `is_active_technician()`, la política de lectura compartida de perfiles y `catalogo_categorias` con datos iniciales.
 3. `20261026131000_create_tickets.sql`: requiere `profiles` y `catalogo_categorias`; crea la secuencia del número, `tickets`, `ticket_historial`, triggers, índices y RLS.
 4. `20261026132000_create_ticket_rpc.sql`: requiere todo lo anterior; crea el esquema `private`, el núcleo de creación y las RPC públicas.
+5. `20261028150000_create_public_incident_intake.sql`: agrega catálogos y campos públicos, admite el canal `web` y crea la RPC exclusiva de `service_role`.
+
+## Formulario público
+
+La ruta `/reportar` carga únicamente catálogos activos mediante SELECT anónimo. No tiene permisos de escritura. La función `registrar-incidencia-publica` valida el cuerpo, calcula un hash de la IP para el límite diario de 20 solicitudes y llama a `public.registrar_ticket_publico`, cuyo `EXECUTE` solo se concede a `service_role`. La RPC vuelve a validar docente, correo institucional, falla, tipo, área y relación pabellón/piso/ambiente antes de insertar el ticket en `nuevo` con canal `web`.
+
+El evento inicial de un reporte externo conserva `actor_id = null`: no se inventa una identidad autenticada para una persona no registrada. Los eventos de atención posteriores siguen requiriendo el técnico autenticado y el historial mantiene su inmutabilidad.
+
+### Despliegue de la función
+
+Con la CLI enlazada explícitamente al proyecto correcto:
+
+```text
+supabase functions deploy registrar-incidencia-publica
+supabase secrets set PUBLIC_FORM_ORIGIN=https://<dominio-publico>
+```
+
+`SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` son secretos gestionados por Supabase; no se colocan en React ni en el repositorio. En desarrollo, puede omitirse `PUBLIC_FORM_ORIGIN` para permitir el origen configurado por el entorno, pero en producción debe fijarse al dominio del formulario.
 
 Aplicar una migración fuera de orden produce errores de referencia o de función inexistente. No se edita una migración ya aplicada: se corrige con una migración nueva.
 

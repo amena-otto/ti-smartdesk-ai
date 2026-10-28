@@ -422,14 +422,26 @@ export function TicketDetailPage() {
                   {ticket.solicitanteNombre}
                 </dd>
               </div>
-              <div>
-                <dt className="text-xs font-medium text-slate-500">
-                  Tipo de solicitante
+                <div>
+                  <dt className="text-xs font-medium text-slate-500">
+                    Tipo de solicitante
                 </dt>
                 <dd className="mt-1 text-sm text-slate-900">
                   {getSolicitanteTipoLabel(ticket.solicitanteTipo)}
-                </dd>
-              </div>
+                  </dd>
+                </div>
+                {ticket.solicitanteDni ? (
+                  <div>
+                    <dt className="text-xs font-medium text-slate-500">DNI</dt>
+                    <dd className="mt-1 text-sm text-slate-900">{ticket.solicitanteDni}</dd>
+                  </div>
+                ) : null}
+                {ticket.solicitanteCorreo ? (
+                  <div>
+                    <dt className="text-xs font-medium text-slate-500">Correo institucional</dt>
+                    <dd className="mt-1 text-sm text-slate-900">{ticket.solicitanteCorreo}</dd>
+                  </div>
+                ) : null}
               <div className="sm:col-span-2">
                 <dt className="text-xs font-medium text-slate-500">
                   Ubicación
