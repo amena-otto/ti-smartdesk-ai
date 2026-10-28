@@ -1,0 +1,11 @@
+# Configuración de Cloudflare Workers Static Assets para el frontend Vite.
+# Las rutas son relativas a este archivo, ubicado en frontend/.
+name = "ti-smartdesk-ai"
+compatibility_date = "2026-10-28"
+
+# Wrangler Preview requiere este bloque aunque no haya bindings exclusivos.
+previews = { }
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
