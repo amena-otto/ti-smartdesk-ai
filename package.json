@@ -1,4 +1,12 @@
 {
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix frontend install --ignore-scripts --no-audit --no-fund && npm --prefix frontend run build",
+    "lint": "npm --prefix frontend run lint",
+    "test": "npm --prefix frontend run test",
+    "preview": "npm run build && npx wrangler preview",
+    "deploy": "npm run build && npx wrangler deploy"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^1.61.0",
