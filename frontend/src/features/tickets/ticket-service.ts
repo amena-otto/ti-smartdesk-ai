@@ -39,6 +39,8 @@ const TICKET_SELECT = `
   categoria:catalogo_categorias!tickets_categoria_id_fkey(nombre),
   solicitante_nombre,
   solicitante_tipo,
+  solicitante_dni,
+  solicitante_correo,
   ubicacion,
   canal_origen,
   estado,

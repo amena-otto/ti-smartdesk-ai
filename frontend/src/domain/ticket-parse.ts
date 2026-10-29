@@ -122,6 +122,8 @@ export function parseTicket(value: unknown): Ticket {
       'El ticket no tiene nombre de solicitante.',
     ),
     solicitanteTipo,
+    solicitanteDni: optionalString(value, 'solicitante_dni'),
+    solicitanteCorreo: optionalString(value, 'solicitante_correo'),
     ubicacion: optionalString(value, 'ubicacion'),
     canalOrigen,
     estado,
@@ -221,11 +223,7 @@ export function parseTicketHistorialItem(value: unknown): TicketHistorialItem {
     accion,
     estadoAnterior,
     estadoNuevo,
-    actorId: requireString(
-      value,
-      'actor_id',
-      'El historial no tiene actor.',
-    ),
+    actorId: optionalString(value, 'actor_id'),
     actorNombre: parseRelationName(value.actor),
     detalle: optionalString(value, 'detalle'),
     creadoEn: requireString(
