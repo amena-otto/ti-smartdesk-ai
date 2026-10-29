@@ -78,7 +78,7 @@ export function TicketsPage() {
     };
   }, [estado, categoriaId, reloadToken]);
 
-  const canCreate = profile?.rol === 'tecnico';
+  const canCreate = profile?.rol === 'admin' || profile?.rol === 'tecnico';
 
   return (
     <div className="space-y-6">

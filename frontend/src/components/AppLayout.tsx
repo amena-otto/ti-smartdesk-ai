@@ -5,6 +5,7 @@ import {
   Plus,
   ShieldCheck,
   Ticket,
+  BarChart3,
 } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
@@ -82,6 +83,15 @@ export function AppLayout() {
           aria-label="Navegación principal"
           className="mx-auto flex w-full max-w-6xl gap-6 overflow-x-auto px-4 sm:px-6"
         >
+          {profile?.rol === 'admin' ? (
+            <NavLink
+              to="/reportes"
+              className={({ isActive }) => `inline-flex shrink-0 items-center gap-2 border-b-2 px-1 py-3 text-sm font-medium transition ${isActive ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900'}`}
+            >
+              <BarChart3 className="size-4" aria-hidden="true" />
+              Reportes
+            </NavLink>
+          ) : null}
           <NavLink
             to="/dashboard"
             end
@@ -109,7 +119,7 @@ export function AppLayout() {
             <Ticket className="size-4" aria-hidden="true" />
             Tickets
           </NavLink>
-          {profile?.rol === 'tecnico' ? (
+          {profile?.rol === 'admin' || profile?.rol === 'tecnico' ? (
             <NavLink
               to="/tickets/nuevo"
               end

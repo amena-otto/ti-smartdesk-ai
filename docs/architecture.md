@@ -1,5 +1,11 @@
 # Arquitectura de TI SmartDesk AI
 
+> **Actualización:** el Área TI usa cuentas individuales `admin` activas y un
+> flujo compartido. El navegador solicita transiciones, pero PostgreSQL deriva
+> identidad y autorización desde la sesión; `tecnico_asignado_id` solo conserva
+> compatibilidad histórica. Los reportes ADMIN se calculan en SQL con zona
+> horaria `America/Lima`.
+
 ## Estado y alcance
 
 Implementación parcial de la fase 1. Existen la aplicación React con autenticación, los perfiles con RLS y el módulo de tickets con su ciclo de vida, historial y operaciones en PostgreSQL. La IA, el chatbot, RAG, voz, reportes y el despliegue siguen pendientes.

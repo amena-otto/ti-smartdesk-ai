@@ -1,5 +1,8 @@
 # Hoja de ruta
 
+> La operación compartida y el reporte de eficiencia del Área TI se encuentran
+> implementados mediante la migración `20261029100000_shared_admin_ticket_operations.sql`.
+
 Las fases expresan dependencias y resultados verificables, sin fechas comprometidas. Una fase se acepta al demostrar sus criterios; la presencia de documentación no implica una función implementada.
 
 | Fase | Objetivo | Depende de | Resultado verificable |

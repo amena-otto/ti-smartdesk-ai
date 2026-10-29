@@ -1,5 +1,11 @@
 # Reglas de negocio
 
+> **Modelo vigente:** los tickets pertenecen al Área TI y no requieren toma ni
+> asignación individual. Cualquier cuenta `admin` activa puede iniciar,
+> continuar, resolver, cerrar o reabrir cualquier ticket. La columna
+> `tecnico_asignado_id` se conserva solo por compatibilidad histórica. Las RPC
+> derivan el actor desde `auth.uid()` y los reportes usan `America/Lima`.
+
 ## Reglas confirmadas
 
 | ID | Regla | Control esperado |
