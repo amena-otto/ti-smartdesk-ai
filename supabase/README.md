@@ -1,5 +1,15 @@
 # Supabase: migraciones y aprovisionamiento
 
+## Modelo operativo vigente
+
+La migración `20261029100000_shared_admin_ticket_operations.sql` supersede las
+reglas operativas anteriores: no hay toma ni asignación obligatoria y cualquier
+`admin` activo puede operar el ciclo completo. Se conservan `tecnico_asignado_id`
+y los eventos históricos sin borrar ni reescribir datos. La RPC
+`obtener_reporte_eficiencia()` valida `is_admin()` en servidor y no concede
+acceso a `anon`. Aplicar esta migración después de las existentes y verificar
+las tres filas de perfiles con `rol = 'admin'` y `activo = true`.
+
 Este directorio contiene la infraestructura de datos de TI SmartDesk AI: perfiles, catálogo de categorías, tickets, historial y las funciones RPC del ciclo de vida. La aplicación no ejecuta migraciones ni incluye claves administrativas.
 
 ## Archivos
@@ -351,3 +361,23 @@ No se deben incluir claves, correos reales ni datos personales en reportes de er
 - [Registro de decisiones](../docs/decisions.md)
 - [Estrategia de pruebas](../docs/testing-strategy.md)
 - [Instrucciones permanentes](../AGENTS.md)
+# Migraciones
+
+Las migraciones se ejecutan en orden desde el proyecto Supabase controlado. La
+aplicación no las ejecuta automáticamente y no se debe aplicar ninguna contra
+un proyecto remoto sin autorización explícita.
+
+## Operación compartida del Área TI
+
+Después de las migraciones base, aplicar
+`20261029100000_shared_admin_ticket_operations.sql`. Esta migración:
+
+- conserva `tecnico_asignado_id`, los datos existentes y todo el historial;
+- elimina la dependencia de asignación para iniciar, resolver y cerrar;
+- autoriza las RPC a personal activo, incluidos los perfiles `admin`;
+- mantiene el actor real de `auth.uid()` en cada evento;
+- crea `obtener_reporte_eficiencia()`, restringida en servidor a `admin` activo.
+
+Verificar después de aplicar que las tres cuentas del Área TI tengan una fila en
+`public.profiles` con `rol = 'admin'` y `activo = true`. No se deben crear
+cuentas compartidas ni otorgar permisos a `anon`.

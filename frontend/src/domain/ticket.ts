@@ -218,18 +218,17 @@ export function getTicketPermisos(
   ticket: Ticket,
   profile: Pick<Profile, 'id' | 'rol'>,
 ): TicketPermisos {
-  const esTecnico = profile.rol === 'tecnico';
-  const asignadoAMi = ticket.tecnicoAsignadoId === profile.id;
+  const esOperador = profile.rol === 'admin' || profile.rol === 'tecnico';
   const enCola = ticket.estado === 'nuevo' || ticket.estado === 'reabierto';
 
   return {
-    tomar: esTecnico && enCola && ticket.tecnicoAsignadoId === null,
-    iniciar: esTecnico && enCola && asignadoAMi,
-    resolver: esTecnico && ticket.estado === 'en_atencion' && asignadoAMi,
-    cerrar: esTecnico && ticket.estado === 'resuelto' && asignadoAMi,
-    reabrir:
-      esTecnico &&
-      (ticket.estado === 'resuelto' || ticket.estado === 'cerrado'),
+    // Se conserva la propiedad para compatibilidad con consumidores antiguos,
+    // pero la toma ya no forma parte del modelo operativo.
+    tomar: false,
+    iniciar: esOperador && enCola,
+    resolver: esOperador && ticket.estado === 'en_atencion',
+    cerrar: esOperador && ticket.estado === 'resuelto',
+    reabrir: esOperador && (ticket.estado === 'resuelto' || ticket.estado === 'cerrado'),
   };
 }
 

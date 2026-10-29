@@ -124,7 +124,7 @@ export function NewTicketPage() {
     navigate(`/tickets/${result.data.id}`, { state: { created: true } });
   }
 
-  if (profile?.rol !== 'tecnico') {
+  if (profile?.rol !== 'admin' && profile?.rol !== 'tecnico') {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
         <h1 className="text-lg font-semibold text-amber-900">

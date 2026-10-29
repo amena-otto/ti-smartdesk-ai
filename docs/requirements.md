@@ -1,5 +1,10 @@
 # Requisitos
 
+> **Modelo vigente:** el Área TI opera con cuentas individuales `admin` activas.
+> No existe toma ni asignación obligatoria. Las transiciones son compartidas,
+> se auditan con el ID real de la sesión y el reporte de eficiencia está
+> restringido a ADMIN.
+
 ## Contexto y alcance
 
 Usuarios operadores: tres técnicos de TI generalistas autenticados. Personas atendidas: estudiantes, docentes y administrativos; no se requiere que tengan cuentas en el sistema. El tipo de persona, también llamado tipo de solicitante, se limita a esos tres valores.

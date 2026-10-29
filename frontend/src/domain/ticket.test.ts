@@ -189,8 +189,8 @@ describe('getTicketPermisos', () => {
   it('permite tomar un ticket nuevo sin asignar a un técnico', () => {
     const permisos = getTicketPermisos(baseTicket, tecnico);
 
-    expect(permisos.tomar).toBe(true);
-    expect(permisos.iniciar).toBe(false);
+    expect(permisos.tomar).toBe(false);
+    expect(permisos.iniciar).toBe(true);
     expect(permisos.resolver).toBe(false);
   });
 
@@ -211,7 +211,7 @@ describe('getTicketPermisos', () => {
     );
 
     expect(permisos.tomar).toBe(false);
-    expect(permisos.iniciar).toBe(false);
+    expect(permisos.iniciar).toBe(true);
   });
 
   it('permite resolver solo al técnico asignado en atención', () => {
@@ -223,7 +223,7 @@ describe('getTicketPermisos', () => {
     };
 
     expect(getTicketPermisos(ticket, tecnico).resolver).toBe(true);
-    expect(getTicketPermisos(ticket, otroTecnico).resolver).toBe(false);
+    expect(getTicketPermisos(ticket, otroTecnico).resolver).toBe(true);
   });
 
   it('permite cerrar y reabrir un ticket resuelto asignado', () => {
@@ -254,12 +254,12 @@ describe('getTicketPermisos', () => {
     expect(getTicketPermisos(ticket, tecnico).reabrir).toBe(true);
   });
 
-  it('deja el perfil administrativo en solo lectura', () => {
+  it('permite operar a cualquier administrador activo del equipo', () => {
     const permisos = getTicketPermisos(baseTicket, admin);
 
     expect(permisos).toEqual({
       tomar: false,
-      iniciar: false,
+      iniciar: true,
       resolver: false,
       cerrar: false,
       reabrir: false,

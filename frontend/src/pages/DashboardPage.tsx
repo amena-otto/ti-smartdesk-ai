@@ -162,7 +162,7 @@ export function DashboardPage() {
             </p>
           </Link>
 
-          {profile.rol === 'tecnico' ? (
+          {profile.rol === 'admin' || profile.rol === 'tecnico' ? (
             <Link
               to="/tickets/nuevo"
               className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"

@@ -6,17 +6,18 @@ import {
   listarAmbientes, listarAreas, listarDocentes, listarFallas, listarPabellones, listarPisos,
   registrarIncidenciaPublica, type Ambiente, type CatalogItem, type Docente, type Falla, type Piso, type PublicReportInput,
 } from '../features/public-report/public-report-service';
+import { ambientesDelPiso, pisosDelPabellon } from '../features/public-report/catalog-dependencies';
 
 type Tipo = PublicReportInput['solicitanteTipo'];
 const inputClass = 'mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200';
 
-function SearchSelect({ id, label, value, options, onChange, required = true }: { id: string; label: string; value: string; options: CatalogItem[]; onChange: (value: string) => void; required?: boolean }) {
+function SearchSelect({ id, label, value, options, onChange, required = true, disabled = false }: { id: string; label: string; value: string; options: CatalogItem[]; onChange: (value: string) => void; required?: boolean; disabled?: boolean }) {
   const [query, setQuery] = useState('');
   const filtered = options.filter((option) => option.nombre.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   return <div>
     <label htmlFor={`${id}-search`} className="block text-sm font-medium text-slate-700">{label} {required ? <span className="text-red-600">*</span> : <span className="text-slate-400">(opcional)</span>}</label>
-    <input id={`${id}-search`} className={inputClass} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar..." aria-label={`Buscar ${label.toLowerCase()}`} />
-    <select id={id} className={inputClass} value={value} onChange={(event) => onChange(event.target.value)} required={required} aria-label={label}>
+    <input id={`${id}-search`} className={inputClass} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar..." aria-label={`Buscar ${label.toLowerCase()}`} disabled={disabled} />
+    <select id={id} className={inputClass} value={value} onChange={(event) => onChange(event.target.value)} required={required} aria-label={label} disabled={disabled}>
       <option value="">Selecciona una opción</option>
       {filtered.map((option) => <option key={option.id} value={option.id}>{option.nombre}</option>)}
     </select>
@@ -43,28 +44,43 @@ export function PublicReportPage() {
   const [pisoId, setPisoId] = useState('');
 
   useEffect(() => {
-    void Promise.all([listarDocentes(), listarPabellones(), listarPisos(), listarAmbientes(), listarAreas()]).then((values) => {
+    void Promise.all([listarDocentes(), listarPabellones(), listarAmbientes(), listarAreas()]).then((values) => {
       const failed = values.find((item) => !item.ok);
       if (failed && !failed.ok) setError(failed.message);
       if (values[0].ok) setDocentes(values[0].data);
       if (values[1].ok) setPabellones(values[1].data);
-      if (values[2].ok) setPisos(values[2].data);
-      if (values[3].ok) setAmbientes(values[3].data);
-      if (values[4].ok) setAreas(values[4].data);
+      if (values[2].ok) setAmbientes(values[2].data);
+      if (values[3].ok) setAreas(values[3].data);
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!pabellonId) {
+      return () => { active = false; };
+    }
+
+    void listarPisos(pabellonId).then((value) => {
+      if (!active) return;
+      if (value.ok) setPisos(value.data);
+      else setError(value.message);
+    });
+
+    return () => { active = false; };
+  }, [pabellonId]);
 
   useEffect(() => {
     void listarFallas(tipo).then((value) => { if (value.ok) setFallas(value.data); else setError(value.message); });
   }, [tipo]);
 
   const selectedDocente = docentes.find((item) => item.id === form.docenteId);
-  const filteredPisos = useMemo(() => pisos.filter((item) => !pabellonId || item.pabellon_id === pabellonId), [pisos, pabellonId]);
-  const filteredAmbientes = useMemo(() => ambientes.filter((item) => !pisoId || item.piso_id === pisoId), [ambientes, pisoId]);
+  const filteredPisos = useMemo(() => pisosDelPabellon(pisos, pabellonId), [pisos, pabellonId]);
+  const filteredAmbientes = useMemo(() => ambientesDelPiso(ambientes, pisoId), [ambientes, pisoId]);
 
   function update(key: keyof PublicReportInput, value: string) { setForm((current) => ({ ...current, [key]: value })); setFieldErrors((current) => ({ ...current, [key]: '' })); }
-  function changeTipo(value: Tipo) { setTipo(value); setFieldErrors({}); setPabellonId(''); setPisoId(''); setForm((current) => ({ ...current, solicitanteTipo: value, fallaId: '', docenteId: '', ambienteId: '', areaId: '', ubicacion: '', solicitanteNombre: '', dni: '', correo: '' })); }
+  function changeTipo(value: Tipo) { setTipo(value); setFieldErrors({}); setPabellonId(''); setPisoId(''); setPisos([]); setForm((current) => ({ ...current, solicitanteTipo: value, fallaId: '', docenteId: '', ambienteId: '', areaId: '', ubicacion: '', solicitanteNombre: '', dni: '', correo: '' })); }
 
   function validate(): Record<string, string> {
     const next: Record<string, string> = {};
@@ -92,7 +108,7 @@ export function PublicReportPage() {
 
   return <main className="min-h-screen bg-slate-50 px-4 py-8 sm:py-12"><section className="mx-auto max-w-3xl"><div className="mb-6"><p className="text-sm font-semibold uppercase tracking-wide text-blue-600">TI SmartDesk AI</p><h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">Reportar una incidencia</h1><p className="mt-2 text-sm leading-6 text-slate-600">Completa el formulario. No necesitas crear una cuenta.</p></div>{error ? <div role="alert" className="mb-5 flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertCircle className="size-5 shrink-0" aria-hidden="true" />{error}</div> : null}<form onSubmit={(event) => void submit(event)} noValidate className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"><div><label htmlFor="tipo" className="block text-sm font-medium text-slate-700">Tipo de usuario <span className="text-red-600">*</span></label><select id="tipo" className={inputClass} value={tipo} onChange={(event) => changeTipo(event.target.value as Tipo)}><option value="estudiante">Alumno</option><option value="docente">Docente</option><option value="administrativo">Administrativo</option></select></div>
     {tipo === 'estudiante' ? <div><label htmlFor="dni" className="block text-sm font-medium text-slate-700">DNI <span className="text-red-600">*</span></label><input id="dni" inputMode="numeric" maxLength={8} className={inputClass} value={form.dni} onChange={(event) => update('dni', event.target.value.replace(/\D/g, ''))} /><FieldError message={fieldErrors.dni} /></div> : null}
-    {tipo === 'docente' ? <div className="grid gap-5 sm:grid-cols-2"><div><SearchSelect id="docente" label="Docente" value={form.docenteId} options={docentes} onChange={(value) => update('docenteId', value)} /><FieldError message={fieldErrors.docenteId} />{selectedDocente ? <p className="mt-1 text-xs text-slate-500">Correo: {selectedDocente.correo_institucional}</p> : null}</div><div><SearchSelect id="pabellon" label="Pabellón" value={pabellonId} options={pabellones} onChange={(value) => { setPabellonId(value); setPisoId(''); update('ambienteId', ''); }} required={false} /><SearchSelect id="piso" label="Piso" value={pisoId} options={filteredPisos} onChange={(value) => { setPisoId(value); update('ambienteId', ''); }} required={false} /><SearchSelect id="ambiente" label="Salón/Ambiente" value={form.ambienteId} options={filteredAmbientes} onChange={(value) => update('ambienteId', value)} /><FieldError message={fieldErrors.ambienteId} /></div></div> : null}
+    {tipo === 'docente' ? <div className="grid gap-5 sm:grid-cols-2"><div><SearchSelect id="docente" label="Docente" value={form.docenteId} options={docentes} onChange={(value) => update('docenteId', value)} /><FieldError message={fieldErrors.docenteId} />{selectedDocente ? <p className="mt-1 text-xs text-slate-500">Correo: {selectedDocente.correo_institucional}</p> : null}</div><div><SearchSelect id="pabellon" label="Pabellón" value={pabellonId} options={pabellones} onChange={(value) => { setPabellonId(value); setPisoId(''); setPisos([]); update('ambienteId', ''); }} required={false} /><SearchSelect id="piso" label="Piso" value={pisoId} options={filteredPisos} onChange={(value) => { setPisoId(value); update('ambienteId', ''); }} required={false} disabled={!pabellonId} /><SearchSelect id="ambiente" label="Salón/Ambiente" value={form.ambienteId} options={filteredAmbientes} onChange={(value) => update('ambienteId', value)} disabled={!pisoId} /><FieldError message={fieldErrors.ambienteId} /></div></div> : null}
     {tipo === 'administrativo' ? <div className="grid gap-5 sm:grid-cols-2"><div><label htmlFor="correo" className="block text-sm font-medium text-slate-700">Correo institucional <span className="text-red-600">*</span></label><input id="correo" type="email" className={inputClass} value={form.correo} onChange={(event) => update('correo', event.target.value)} /><FieldError message={fieldErrors.correo} /></div><div><SearchSelect id="area" label="Área" value={form.areaId} options={areas} onChange={(value) => update('areaId', value)} /><FieldError message={fieldErrors.areaId} /></div>{areas.find((area) => area.id === form.areaId)?.nombre === 'Otros' ? <div className="sm:col-span-2"><label htmlFor="otra-area" className="block text-sm font-medium text-slate-700">Especifica el área <span className="text-red-600">*</span></label><input id="otra-area" className={inputClass} value={form.solicitanteNombre} onChange={(event) => update('solicitanteNombre', event.target.value)} /><FieldError message={fieldErrors.solicitanteNombre} /></div> : null}</div> : null}
     <div><SearchSelect id="falla" label="Falla común" value={form.fallaId} options={fallas} onChange={(value) => update('fallaId', value)} /><FieldError message={fieldErrors.fallaId} /></div>
     {tipo !== 'docente' ? <div><label htmlFor="ubicacion-texto" className="block text-sm font-medium text-slate-700">Ubicación referencial <span className="text-slate-400">(opcional)</span></label><input id="ubicacion-texto" className={inputClass} value={form.ubicacion} onChange={(event) => update('ubicacion', event.target.value)} placeholder="Ej. laboratorio o pabellón" /></div> : null}
