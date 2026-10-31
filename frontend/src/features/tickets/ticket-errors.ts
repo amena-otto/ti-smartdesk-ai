@@ -17,10 +17,6 @@ const TOKEN_MESSAGES: Record<string, string> = {
     'El ticket no existe o no tienes permiso para consultarlo.',
   transicion_invalida:
     'El ticket cambió de estado. Actualiza la vista antes de volver a intentarlo.',
-  ticket_ya_tomado:
-    'Otro técnico tomó este ticket mientras lo consultabas. Actualiza la vista.',
-  sin_asignacion:
-    'La operación requiere que el ticket esté asignado a tu usuario.',
   solucion_requerida:
     'La solución es obligatoria para resolver el ticket.',
   duplicate_request_conflict:

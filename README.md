@@ -12,9 +12,9 @@ Sistema web inteligente para registrar, gestionar y analizar tickets de soporte 
 
 ## Estado
 
-Proyecto en fase 1 en curso. Existen una base funcional de autenticación con Supabase Auth, perfiles con RLS y un módulo de tickets con bandeja, alta manual, detalle, historial y transiciones de estado. El código compila, pasa lint y 51 pruebas unitarias.
+Proyecto en fase 1 en curso. Existen una base funcional de autenticación con Supabase Auth, perfiles con RLS, un módulo de tickets con bandeja, alta manual, detalle, historial y transiciones de estado, y el reporte de eficiencia para `admin` activo. El código compila, pasa lint y 59 pruebas unitarias.
 
-El módulo todavía no se ha verificado contra un proyecto Supabase real: las migraciones no se han aplicado y no hay pruebas de RLS ni de componentes en navegador. Tampoco hay chatbot, IA, reportes ni despliegue.
+El módulo todavía no se ha verificado contra un proyecto Supabase real: las migraciones no se han aplicado y no hay pruebas de RLS ni de componentes en navegador. Tampoco hay chatbot, IA ni despliegue.
 
 ## Estructura del repositorio
 
@@ -50,7 +50,7 @@ Verificaciones disponibles en `frontend`: `npm run lint`, `npm run test` y `npm 
 
 ## Propósito y usuarios
 
-Tres técnicos de TI generalistas registran incidencias de estudiantes, docentes y administrativos. Los tickets se crean antes de la atención, se toman de una cola compartida, se inician, se resuelven con una solución, se cierran y pueden reabrirse.
+Tres operadores del Área TI registran incidencias de estudiantes, docentes y administrativos. Los tickets se crean antes de la atención, se inician desde una cola compartida, se resuelven con una solución, se cierran y pueden reabrirse. No existe toma ni asignación individual obligatoria: las tres cuentas son `admin` activas y operan con permisos equivalentes.
 
 Las incidencias pueden llegar presencialmente o mediante el número institucional compartido de WhatsApp Business. La primera versión no integra directamente WhatsApp: el canal se registra como dato y el texto se aporta manualmente.
 
@@ -58,8 +58,8 @@ Las incidencias pueden llegar presencialmente o mediante el número instituciona
 
 - El ticket se crea antes de atender la incidencia; la solución se registra al resolverlo.
 - El registro y las transiciones manuales funcionan sin IA.
-- PostgreSQL genera el número único del ticket y la sesión autenticada determina al técnico que lo toma.
-- Solo un técnico activo opera tickets; el rol `admin` activo solo consulta.
+- PostgreSQL genera el número único del ticket y la sesión autenticada determina el actor de cada operación.
+- Cualquier perfil `admin` o `tecnico` activo opera tickets sin asignación individual; el reporte de eficiencia queda reservado a `admin` activo.
 - La solución es obligatoria para resolver y cada transición queda en un historial inmutable.
 - No se borran tickets físicamente ni se edita el historial desde el cliente.
 - La IA propone una clasificación y un borrador editable; el técnico confirma antes de guardar.
@@ -87,9 +87,9 @@ Lectura sugerida: reglas de negocio y requisitos para entender el alcance; arqui
 
 ## Alcance actual y próximos pasos
 
-Esta etapa implementa autenticación, perfiles, catálogo provisional de categorías, tickets, historial y las operaciones de toma, inicio, resolución, cierre y reapertura. No incluye chatbot, IA, reportes, voz ni despliegue.
+Esta etapa implementa autenticación, perfiles, catálogo provisional de categorías, tickets, historial, las operaciones de inicio, resolución, cierre y reapertura, y el reporte de eficiencia para `admin` activo. No incluye chatbot, IA, voz ni despliegue.
 
-La verificación contra un proyecto Supabase real, la aplicación de las migraciones y la creación de las cuentas son pasos manuales pendientes. Antes de completar la fase 1 se deben acordar el catálogo definitivo de categorías, la política de correcciones, el formato definitivo del número y la zona horaria, y el responsable institucional del alta de técnicos.
+La verificación contra un proyecto Supabase real, la aplicación de las migraciones y la creación de las cuentas son pasos manuales pendientes. Antes de completar la fase 1 se deben acordar el catálogo definitivo de categorías, la política de correcciones, el formato definitivo del número y la zona horaria, y el responsable institucional del alta de operadores.
 
 ## Decisiones pendientes
 
@@ -98,7 +98,7 @@ La verificación contra un proyecto Supabase real, la aplicación de las migraci
 | Catálogo definitivo de categorías y su mantenimiento | [Reglas de negocio](docs/business-rules.md) | 1 |
 | Corrección de campos ya guardados sin reescribir el historial | [Base de datos](docs/database-design.md) | 1 |
 | Formato del número, zona horaria y fechas retrospectivas | [Decisiones](docs/decisions.md) | 1 |
-| Alta y baja de técnicos y gestión de permisos | [Decisiones](docs/decisions.md) | 1 |
+| Alta y baja de operadores y gestión de permisos | [Decisiones](docs/decisions.md) | 1 |
 | Proveedor de IA, presupuesto y tratamiento de datos | [Costos y límites](docs/costs-and-limits.md) | 2 |
 | Corpus de conocimiento y política de acceso | [Hoja de ruta](docs/roadmap.md) | 4 |
 | Conservación de datos, respaldo y RPO/RTO | [Base de datos](docs/database-design.md) | 6 |

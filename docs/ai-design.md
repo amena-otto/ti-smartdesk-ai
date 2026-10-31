@@ -18,7 +18,7 @@ El ticket se crea antes de atender la incidencia. Por eso el borrador no contien
 6. **Vista previa editable:** el técnico revisa los campos extraídos y la clasificación, completa lo necesario y verifica que el texto describa el problema reportado. Se identifica claramente el contenido como borrador.
 7. **Confirmación:** una acción explícita, por ejemplo «Confirmar y crear ticket», envía la versión revisada a la operación de creación. No basta con que el modelo escriba que el ticket está confirmado.
 8. **Guardado:** el servidor revalida sesión, permisos, catálogo y datos; deriva el creador de la sesión. PostgreSQL genera el número y guarda el ticket en estado `nuevo`, sin técnico asignado y sin solución, con su historial en una transacción.
-9. **Resultado:** solo después de confirmarse la transacción se muestra el número definitivo. El ticket queda en la cola para que un técnico lo tome e inicie la atención. Ante un error, se conserva el borrador para corrección o reintento seguro.
+9. **Resultado:** solo después de confirmarse la transacción se muestra el número definitivo. El ticket queda en la cola compartida para que cualquier operador activo inicie la atención. Ante un error, se conserva el borrador para corrección o reintento seguro.
 
 ## Estados del borrador
 
@@ -76,7 +76,7 @@ stateDiagram-v2
 | Campos faltantes y dudas | Información auxiliar para revisión; no reemplaza validaciones del servidor. |
 | Motivo de clasificación | Explicación breve vinculada al catálogo para facilitar la revisión. |
 
-El número, el estado, el técnico asignado, las fechas del ciclo, la solución, los permisos y los datos de auditoría no son decisiones del modelo. Los campos desconocidos o no permitidos de la respuesta se rechazan o descartan según un contrato explícito. Una confianza declarada por el modelo no sustituye la confirmación ni constituye una probabilidad calibrada.
+El número, el estado, el responsable histórico, las fechas del ciclo, la solución, los permisos y los datos de auditoría no son decisiones del modelo. Los campos desconocidos o no permitidos de la respuesta se rechazan o descartan según un contrato explícito. Una confianza declarada por el modelo no sustituye la confirmación ni constituye una probabilidad calibrada.
 
 ## Clasificación y validación
 

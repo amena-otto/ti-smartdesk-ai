@@ -200,15 +200,6 @@ export async function crearTicket(
   );
 }
 
-export async function tomarTicket(
-  ticketId: string,
-): Promise<TicketResult<Ticket>> {
-  return executeTicketAction(
-    ticketId,
-    async () => requireSupabase().rpc('tomar_ticket', { p_ticket_id: ticketId }),
-  );
-}
-
 export async function iniciarAtencion(
   ticketId: string,
 ): Promise<TicketResult<Ticket>> {

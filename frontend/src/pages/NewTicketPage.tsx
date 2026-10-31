@@ -128,11 +128,11 @@ export function NewTicketPage() {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
         <h1 className="text-lg font-semibold text-amber-900">
-          Registro reservado a técnicos
+          Registro reservado al Área TI
         </h1>
         <p className="mt-2 text-sm leading-6 text-amber-800">
-          Tu perfil es de solo lectura para tickets. Un técnico activo debe
-          registrar la incidencia.
+          Tu perfil no puede registrar tickets. Una cuenta admin activa del
+          Área TI debe registrar la incidencia.
         </p>
         <Link
           to="/tickets"
@@ -159,9 +159,9 @@ export function NewTicketPage() {
           Registrar ticket
         </h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          El ticket se crea en estado <strong>Nuevo</strong> y sin técnico
-          asignado. Después podrás tomarlo, iniciar la atención y registrar la
-          solución.
+          El ticket se crea en estado <strong>Nuevo</strong> y sin asignación
+          individual. Después podrás iniciar la atención y registrar la
+          solución desde la bandeja compartida del Área TI.
         </p>
       </div>
 

@@ -38,19 +38,28 @@ const baseTicket: Ticket = {
   createdBy: 'profile-1',
 };
 
-const tecnico: Pick<Profile, 'id' | 'rol'> = {
+const tecnico: Pick<Profile, 'id' | 'rol' | 'activo'> = {
   id: 'profile-1',
   rol: 'tecnico',
+  activo: true,
 };
 
-const otroTecnico: Pick<Profile, 'id' | 'rol'> = {
+const otroTecnico: Pick<Profile, 'id' | 'rol' | 'activo'> = {
   id: 'profile-2',
   rol: 'tecnico',
+  activo: true,
 };
 
-const admin: Pick<Profile, 'id' | 'rol'> = {
+const admin: Pick<Profile, 'id' | 'rol' | 'activo'> = {
   id: 'profile-admin',
   rol: 'admin',
+  activo: true,
+};
+
+const adminInactivo: Pick<Profile, 'id' | 'rol' | 'activo'> = {
+  id: 'profile-admin-inactivo',
+  rol: 'admin',
+  activo: false,
 };
 
 function validInput(): NuevoTicketInput {
@@ -186,35 +195,23 @@ describe('parseTicketHistorialItem', () => {
 });
 
 describe('getTicketPermisos', () => {
-  it('permite tomar un ticket nuevo sin asignar a un técnico', () => {
+  it('permite iniciar un ticket nuevo sin asignación individual', () => {
     const permisos = getTicketPermisos(baseTicket, tecnico);
 
-    expect(permisos.tomar).toBe(false);
     expect(permisos.iniciar).toBe(true);
     expect(permisos.resolver).toBe(false);
   });
 
-  it('permite iniciar cuando el ticket está asignado al técnico actual', () => {
-    const permisos = getTicketPermisos(
-      { ...baseTicket, tecnicoAsignadoId: tecnico.id },
-      tecnico,
-    );
-
-    expect(permisos.tomar).toBe(false);
-    expect(permisos.iniciar).toBe(true);
-  });
-
-  it('no permite tomar un ticket asignado a otro técnico', () => {
+  it('no depende ahora de la asignación histórica del ticket', () => {
     const permisos = getTicketPermisos(
       { ...baseTicket, tecnicoAsignadoId: otroTecnico.id },
       tecnico,
     );
 
-    expect(permisos.tomar).toBe(false);
     expect(permisos.iniciar).toBe(true);
   });
 
-  it('permite resolver solo al técnico asignado en atención', () => {
+  it('permite resolver a cualquier operador activo, no solo al asignado', () => {
     const ticket = {
       ...baseTicket,
       estado: 'en_atencion' as const,
@@ -224,9 +221,10 @@ describe('getTicketPermisos', () => {
 
     expect(getTicketPermisos(ticket, tecnico).resolver).toBe(true);
     expect(getTicketPermisos(ticket, otroTecnico).resolver).toBe(true);
+    expect(getTicketPermisos(ticket, admin).resolver).toBe(true);
   });
 
-  it('permite cerrar y reabrir un ticket resuelto asignado', () => {
+  it('permite cerrar y reabrir un ticket resuelto', () => {
     const ticket = {
       ...baseTicket,
       estado: 'resuelto' as const,
@@ -241,7 +239,7 @@ describe('getTicketPermisos', () => {
     expect(permisos.reabrir).toBe(true);
   });
 
-  it('permite reabrir un ticket cerrado a cualquier técnico activo', () => {
+  it('permite reabrir un ticket cerrado a cualquier operador activo', () => {
     const ticket = {
       ...baseTicket,
       estado: 'cerrado' as const,
@@ -254,12 +252,26 @@ describe('getTicketPermisos', () => {
     expect(getTicketPermisos(ticket, tecnico).reabrir).toBe(true);
   });
 
-  it('permite operar a cualquier administrador activo del equipo', () => {
+  it('trata a las cuentas admin activas como operadores equivalentes', () => {
     const permisos = getTicketPermisos(baseTicket, admin);
 
     expect(permisos).toEqual({
-      tomar: false,
       iniciar: true,
+      resolver: false,
+      cerrar: false,
+      reabrir: false,
+    });
+  });
+
+  it('niega toda operación a un perfil inactivo', () => {
+    const ticket = {
+      ...baseTicket,
+      estado: 'en_atencion' as const,
+      fechaInicioAtencion: '2026-10-26T12:10:00.000Z',
+    };
+
+    expect(getTicketPermisos(ticket, adminInactivo)).toEqual({
+      iniciar: false,
       resolver: false,
       cerrar: false,
       reabrir: false,

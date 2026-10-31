@@ -114,7 +114,6 @@ export type NuevoTicketErrores = Partial<
 >;
 
 export type TicketPermisos = {
-  tomar: boolean;
   iniciar: boolean;
   resolver: boolean;
   cerrar: boolean;
@@ -216,19 +215,20 @@ export function getAccionLabel(accion: TicketAccion): string {
 
 export function getTicketPermisos(
   ticket: Ticket,
-  profile: Pick<Profile, 'id' | 'rol'>,
+  profile: Pick<Profile, 'id' | 'rol' | 'activo'>,
 ): TicketPermisos {
-  const esOperador = profile.rol === 'admin' || profile.rol === 'tecnico';
+  const esOperadorActivo =
+    profile.activo &&
+    (profile.rol === 'admin' || profile.rol === 'tecnico');
   const enCola = ticket.estado === 'nuevo' || ticket.estado === 'reabierto';
 
   return {
-    // Se conserva la propiedad para compatibilidad con consumidores antiguos,
-    // pero la toma ya no forma parte del modelo operativo.
-    tomar: false,
-    iniciar: esOperador && enCola,
-    resolver: esOperador && ticket.estado === 'en_atencion',
-    cerrar: esOperador && ticket.estado === 'resuelto',
-    reabrir: esOperador && (ticket.estado === 'resuelto' || ticket.estado === 'cerrado'),
+    iniciar: esOperadorActivo && enCola,
+    resolver: esOperadorActivo && ticket.estado === 'en_atencion',
+    cerrar: esOperadorActivo && ticket.estado === 'resuelto',
+    reabrir:
+      esOperadorActivo &&
+      (ticket.estado === 'resuelto' || ticket.estado === 'cerrado'),
   };
 }
 

@@ -65,11 +65,11 @@ export function LoginPage() {
           </div>
 
           <h1 className="mt-14 max-w-md text-4xl font-semibold leading-tight tracking-tight text-white xl:text-5xl">
-            Registro de atenciones resueltas, con control del técnico.
+            Registro de atenciones resueltas, con control del operador.
           </h1>
           <p className="mt-5 max-w-md text-base leading-7 text-slate-300">
             Un espacio único para documentar el soporte brindado a la comunidad
-            educativa. La asistencia de IA propone; el técnico confirma.
+            educativa. La asistencia de IA propone; el operador confirma.
           </p>
 
           <ul className="mt-10 space-y-4">
@@ -117,7 +117,7 @@ export function LoginPage() {
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Usa tu correo institucional y la contraseña asignada a tu cuenta
-                de técnico.
+                del Área TI.
               </p>
             </div>
 

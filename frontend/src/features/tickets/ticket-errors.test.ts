@@ -4,12 +4,8 @@ import { mapTicketError } from './ticket-errors';
 describe('mapTicketError', () => {
   it('traduce tokens de error de las RPC', () => {
     expect(
-      mapTicketError({ message: 'ticket_ya_tomado' }),
-    ).toContain('Otro técnico');
-
-    expect(
-      mapTicketError({ message: 'sin_asignacion' }),
-    ).toContain('asignado a tu usuario');
+      mapTicketError({ message: 'duplicate_request_conflict' }),
+    ).toContain('datos distintos');
 
     expect(
       mapTicketError({ message: 'transicion_invalida' }),

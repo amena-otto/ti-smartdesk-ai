@@ -44,7 +44,8 @@ begin
   end if;
   if char_length(v_asunto) not between 3 and 150 or char_length(v_descripcion) not between 5 and 4000
     or char_length(v_nombre) not between 2 and 150 or v_tipo not in ('estudiante','docente','administrativo')
-    or v_canal not in ('manual','ia','whatsapp','correo') or (v_ubicacion is not null and char_length(v_ubicacion)>200) then
+    or v_canal not in ('manual','ia','whatsapp','correo') or (v_ubicacion is not null and char_length(v_ubicacion)>200)
+    or (v_clave is not null and char_length(v_clave) > 200) then
     raise exception using errcode='P0001', message='datos_invalidos';
   end if;
   if not exists (select 1 from public.catalogo_categorias where id=p_categoria_id and activo) then
@@ -76,6 +77,28 @@ end; $$;
 
 revoke all on function private.registrar_ticket_compartido(uuid,text,text,uuid,text,text,text,text,text) from public, anon, authenticated;
 grant execute on function private.registrar_ticket_compartido(uuid,text,text,uuid,text,text,text,text,text) to service_role;
+
+-- El núcleo privado histórico se conserva para integraciones de servidor, pero
+-- deja de exigir el rol tecnico y reutiliza la validación compartida. Así una
+-- cuenta admin activa también puede crear tickets desde un proceso autorizado.
+create or replace function private.registrar_ticket(
+  p_actor_id uuid, p_asunto text, p_descripcion text, p_categoria_id uuid,
+  p_solicitante_nombre text, p_solicitante_tipo text, p_ubicacion text,
+  p_canal_origen text, p_clave_idempotencia text
+)
+returns public.tickets language plpgsql security definer set search_path = ''
+as $$
+begin
+  if p_actor_id is null then
+    raise exception using errcode='42501', message='no_autenticado';
+  end if;
+  return private.registrar_ticket_compartido(p_actor_id, p_asunto, p_descripcion,
+    p_categoria_id, p_solicitante_nombre, p_solicitante_tipo, p_ubicacion,
+    p_canal_origen, p_clave_idempotencia);
+end; $$;
+
+revoke all on function private.registrar_ticket(uuid,text,text,uuid,text,text,text,text,text) from public, anon, authenticated;
+grant execute on function private.registrar_ticket(uuid,text,text,uuid,text,text,text,text,text) to service_role;
 
 -- Conserva el nombre histórico de la función para no romper dependencias,
 -- pero su semántica pasa a ser la de cualquier operador activo.
@@ -188,44 +211,155 @@ begin
   return v_ticket;
 end; $$;
 
-revoke all on function public.tomar_ticket(uuid) from authenticated;
-revoke all on function public.tomar_ticket(uuid) from anon;
+-- La toma individual ya no forma parte del modelo operativo. Se elimina la RPC
+-- obsoleta; los eventos históricos con acción 'tomado' permanecen intactos.
+drop function if exists public.tomar_ticket(uuid);
 
--- Reporte agregado: solo ADMIN activo. Los buckets se calculan en Lima y los
--- tiempos usan los eventos reales del historial, incluyendo reaperturas.
-create or replace function public.obtener_reporte_eficiencia()
+-- Reporte agregado: solo ADMIN activo. Los buckets se calculan en Lima, los
+-- resueltos se cuentan por la fecha real del evento de resolución y los
+-- promedios usan únicamente el ciclo vigente después de la última reapertura.
+drop function if exists public.obtener_reporte_eficiencia();
+drop function if exists public.obtener_reporte_eficiencia(date, date, uuid, text);
+
+create or replace function public.obtener_reporte_eficiencia(
+  p_fecha_desde date default null,
+  p_fecha_hasta date default null,
+  p_categoria_id uuid default null,
+  p_solicitante_tipo text default null
+)
 returns jsonb language plpgsql security definer set search_path = ''
 as $$
-declare v_result jsonb;
+declare
+  v_result jsonb;
+  v_desde timestamptz;
+  v_hasta timestamptz;
+  v_tipo text := nullif(lower(btrim(coalesce(p_solicitante_tipo, ''))), '');
 begin
-  if not public.is_admin() then raise exception using errcode = '42501', message = 'solo_admin'; end if;
-  with base as (select * from public.tickets),
+  if not public.is_admin() then
+    raise exception using errcode = '42501', message = 'solo_admin';
+  end if;
+
+  if v_tipo is not null and v_tipo not in ('estudiante','docente','administrativo') then
+    raise exception using errcode = 'P0001', message = 'datos_invalidos';
+  end if;
+
+  if p_fecha_desde is not null then
+    v_desde := (p_fecha_desde::timestamp at time zone 'America/Lima');
+  end if;
+
+  if p_fecha_hasta is not null then
+    v_hasta := ((p_fecha_hasta + 1)::timestamp at time zone 'America/Lima');
+  end if;
+
+  if v_desde is not null and v_hasta is not null and v_desde >= v_hasta then
+    raise exception using errcode = 'P0001', message = 'datos_invalidos';
+  end if;
+
+  with tickets_filtrados as (
+    select t.*
+    from public.tickets t
+    where (p_categoria_id is null or t.categoria_id = p_categoria_id)
+      and (v_tipo is null or t.solicitante_tipo = v_tipo)
+  ),
+  recibidos as (
+    select tf.*
+    from tickets_filtrados tf
+    where (v_desde is null or tf.fecha_creacion >= v_desde)
+      and (v_hasta is null or tf.fecha_creacion < v_hasta)
+  ),
+  ciclos as (
+    select tf.id, tf.fecha_creacion,
+      coalesce(
+        max(h.creado_en) filter (where h.accion = 'reabierto'),
+        tf.fecha_creacion
+      ) as inicio_ciclo
+    from tickets_filtrados tf
+    left join public.ticket_historial h on h.ticket_id = tf.id
+    group by tf.id, tf.fecha_creacion
+  ),
+  eventos_ciclo as (
+    select c.id, c.inicio_ciclo,
+      min(h.creado_en) filter (
+        where h.accion = 'iniciado' and h.creado_en >= c.inicio_ciclo
+      ) as inicio_atencion,
+      max(h.creado_en) filter (
+        where h.accion = 'resuelto' and h.creado_en >= c.inicio_ciclo
+      ) as resolucion
+    from ciclos c
+    left join public.ticket_historial h on h.ticket_id = c.id
+    group by c.id, c.inicio_ciclo
+  ),
   tiempos as (
-    select t.id, extract(epoch from (max(h_res.creado_en) - t.fecha_creacion))/60 as minutos_resolucion,
-      extract(epoch from (min(h_ini.creado_en) - t.fecha_creacion))/60 as minutos_inicio
-    from base t
-    left join public.ticket_historial h_ini on h_ini.ticket_id=t.id and h_ini.accion='iniciado'
-    left join public.ticket_historial h_res on h_res.ticket_id=t.id and h_res.accion='resuelto'
-    group by t.id, t.fecha_creacion
-  ), resumen as (
-    select count(*) as recibidos, count(*) filter (where estado in ('resuelto','cerrado')) as resueltos,
-      count(*) filter (where estado not in ('resuelto','cerrado')) as pendientes,
-      count(*) filter (where exists (select 1 from public.ticket_historial h where h.ticket_id=t.id and h.accion='reabierto')) as reabiertos,
-      round(avg(minutos_inicio)::numeric, 2) as tiempo_inicio_minutos,
-      round(avg(minutos_resolucion)::numeric, 2) as tiempo_resolucion_minutos,
-      round((100 * count(*) filter (where estado in ('resuelto','cerrado')) / nullif(count(*),0))::numeric, 2) as tasa_resolucion
-    from base t join tiempos using(id)
-  ), series as (
-    select 'diaria' as periodo, to_char(fecha_creacion at time zone 'America/Lima','YYYY-MM-DD') as fecha,
-      count(*) as recibidos, count(*) filter (where estado in ('resuelto','cerrado')) as resueltos
-    from base group by 2
-    union all select 'semanal', to_char(date_trunc('week', fecha_creacion at time zone 'America/Lima'),'YYYY-MM-DD'), count(*), count(*) filter (where estado in ('resuelto','cerrado')) from base group by 2
-    union all select 'mensual', to_char(date_trunc('month', fecha_creacion at time zone 'America/Lima'),'YYYY-MM'), count(*), count(*) filter (where estado in ('resuelto','cerrado')) from base group by 2
+    select c.id,
+      extract(epoch from (e.inicio_atencion - c.inicio_ciclo)) / 60 as minutos_inicio,
+      extract(epoch from (e.resolucion - c.inicio_ciclo)) / 60 as minutos_resolucion
+    from ciclos c
+    join eventos_ciclo e on e.id = c.id
+  ),
+  eventos as (
+    select tf.id as ticket_id, 'recibido'::text as tipo, tf.fecha_creacion as momento
+    from tickets_filtrados tf
+    where (v_desde is null or tf.fecha_creacion >= v_desde)
+      and (v_hasta is null or tf.fecha_creacion < v_hasta)
+    union all
+    select tf.id, 'resuelto', h.creado_en
+    from public.ticket_historial h
+    join tickets_filtrados tf on tf.id = h.ticket_id
+    where h.accion = 'resuelto'
+      and (v_desde is null or h.creado_en >= v_desde)
+      and (v_hasta is null or h.creado_en < v_hasta)
+    union all
+    select tf.id, 'reabierto', h.creado_en
+    from public.ticket_historial h
+    join tickets_filtrados tf on tf.id = h.ticket_id
+    where h.accion = 'reabierto'
+      and (v_desde is null or h.creado_en >= v_desde)
+      and (v_hasta is null or h.creado_en < v_hasta)
+  ),
+  resumen as (
+    select
+      (select count(*) from recibidos) as recibidos,
+      (select count(distinct e.ticket_id) from eventos e where e.tipo = 'resuelto') as resueltos,
+      (select count(*) from recibidos r where r.estado not in ('resuelto','cerrado')) as pendientes,
+      (select count(distinct e.ticket_id) from eventos e where e.tipo = 'reabierto') as reabiertos,
+      (select round(avg(t.minutos_inicio)::numeric, 2)
+        from tiempos t join recibidos r on r.id = t.id) as tiempo_inicio_minutos,
+      (select round(avg(t.minutos_resolucion)::numeric, 2)
+        from tiempos t join recibidos r on r.id = t.id) as tiempo_resolucion_minutos
+  ),
+  resumen_tasa as (
+    select r.*,
+      case
+        when r.recibidos > 0
+          then round((100.0 * r.resueltos / r.recibidos)::numeric, 2)
+        else null
+      end as tasa_resolucion
+    from resumen r
+  ),
+  series as (
+    select p.periodo, p.fecha,
+      count(*) filter (where e.tipo = 'recibido') as recibidos,
+      count(distinct e.ticket_id) filter (where e.tipo = 'resuelto') as resueltos
+    from eventos e
+    cross join lateral (
+      values
+        ('diaria', to_char(e.momento at time zone 'America/Lima', 'YYYY-MM-DD')),
+        ('semanal', to_char(date_trunc('week', e.momento at time zone 'America/Lima'), 'YYYY-MM-DD')),
+        ('mensual', to_char(date_trunc('month', e.momento at time zone 'America/Lima'), 'YYYY-MM'))
+    ) as p(periodo, fecha)
+    group by p.periodo, p.fecha
   )
-  select jsonb_build_object('resumen', (select row_to_json(resumen) from resumen), 'evolucion', coalesce((select jsonb_agg(series order by periodo, fecha) from series), '[]'::jsonb)) into v_result;
+  select jsonb_build_object(
+    'resumen', (select row_to_json(r) from resumen_tasa r),
+    'evolucion', coalesce(
+      (select jsonb_agg(s order by s.periodo, s.fecha) from series s),
+      '[]'::jsonb
+    )
+  ) into v_result;
+
   return v_result;
 end; $$;
 
-revoke all on function public.obtener_reporte_eficiencia() from public;
-revoke all on function public.obtener_reporte_eficiencia() from anon;
-grant execute on function public.obtener_reporte_eficiencia() to authenticated;
+revoke all on function public.obtener_reporte_eficiencia(date, date, uuid, text) from public;
+revoke all on function public.obtener_reporte_eficiencia(date, date, uuid, text) from anon;
+grant execute on function public.obtener_reporte_eficiencia(date, date, uuid, text) to authenticated;

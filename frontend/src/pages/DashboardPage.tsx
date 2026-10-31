@@ -51,7 +51,7 @@ export function DashboardPage() {
         <div className="grid gap-6 px-6 py-6 sm:px-8 sm:py-8 lg:grid-cols-2">
           <div>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Datos del técnico
+              Datos del operador
             </h2>
             <dl className="mt-4 space-y-4">
               <div className="flex items-start gap-3">
@@ -119,8 +119,8 @@ export function DashboardPage() {
             </p>
             <p className="mt-3 text-xs leading-5 text-blue-800">
               Ningún rol enviado por el navegador se usa para autorizar
-              operaciones. La identidad y el técnico asignado se derivan de la
-              sesión autenticada.
+              operaciones. La identidad y el actor de cada transición se derivan
+              de la sesión autenticada.
             </p>
           </div>
         </div>
@@ -162,42 +162,28 @@ export function DashboardPage() {
             </p>
           </Link>
 
-          {profile.rol === 'admin' || profile.rol === 'tecnico' ? (
-            <Link
-              to="/tickets/nuevo"
-              className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                  <Plus className="size-5" aria-hidden="true" />
-                </div>
-                <ArrowRight
-                  className="size-5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600"
-                  aria-hidden="true"
-                />
+          <Link
+            to="/tickets/nuevo"
+            className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                <Plus className="size-5" aria-hidden="true" />
               </div>
-              <h3 className="mt-4 text-sm font-semibold text-slate-900">
-                Registrar ticket
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Alta manual de una incidencia con categoría, solicitante y canal
-                de origen. El ticket inicia en estado Nuevo.
-              </p>
-            </Link>
-          ) : (
-            <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                <ShieldCheck className="size-5" aria-hidden="true" />
-              </div>
-              <h3 className="mt-4 text-sm font-semibold text-slate-900">
-                Lectura administrativa
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Tu perfil puede consultar los tickets del equipo. La toma,
-                resolución y cierre corresponden a los técnicos activos.
-              </p>
-            </article>
-          )}
+              <ArrowRight
+                className="size-5 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-blue-600"
+                aria-hidden="true"
+              />
+            </div>
+            <h3 className="mt-4 text-sm font-semibold text-slate-900">
+              Registrar ticket
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Alta manual de una incidencia con categoría, solicitante y canal
+              de origen. El ticket inicia en estado Nuevo y queda en la cola
+              compartida del Área TI.
+            </p>
+          </Link>
         </div>
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

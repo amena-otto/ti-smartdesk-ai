@@ -83,7 +83,7 @@ export function AppLayout() {
           aria-label="Navegación principal"
           className="mx-auto flex w-full max-w-6xl gap-6 overflow-x-auto px-4 sm:px-6"
         >
-          {profile?.rol === 'admin' ? (
+          {profile?.rol === 'admin' && profile.activo ? (
             <NavLink
               to="/reportes"
               className={({ isActive }) => `inline-flex shrink-0 items-center gap-2 border-b-2 px-1 py-3 text-sm font-medium transition ${isActive ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900'}`}
