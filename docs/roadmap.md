@@ -1,15 +1,18 @@
 # Hoja de ruta
 
+> La operación compartida y el reporte de eficiencia del Área TI se encuentran
+> implementados mediante la migración `20261029100000_shared_admin_ticket_operations.sql`.
+
 Las fases expresan dependencias y resultados verificables, sin fechas comprometidas. Una fase se acepta al demostrar sus criterios; la presencia de documentación no implica una función implementada.
 
 | Fase | Objetivo | Depende de | Resultado verificable |
 | --- | --- | --- | --- |
 | 0 | Preparación y arquitectura | — | Documentación coherente y decisiones pendientes identificadas. |
-| 1 | Base de datos, autenticación y tickets manuales | Decisiones de dominio de la fase 0 | Los tres técnicos registran, toman, atienden, resuelven y cierran tickets sin IA. |
+| 1 | Base de datos, autenticación y tickets manuales | Decisiones de dominio de la fase 0 | Los tres operadores registran, atienden, resuelven y cierran tickets sin IA, y el `admin` activo consulta el reporte de eficiencia. |
 | 2 | Chatbot, clasificación y confirmación | Registro manual estable y proveedor elegido | Borrador editable con confirmación explícita. |
 | 3 | Agente con herramientas seguras | Contratos de IA estables y permisos aprobados | Herramientas acotadas sin acceso administrativo. |
 | 4 | Base de conocimientos y RAG | Corpus aprobado y política de acceso | Respuestas con fuentes y permisos respetados. |
-| 5 | Analítica, voz y reportes | Calidad de datos e indicadores acordados | Indicadores y reportes confiables. |
+| 5 | Analítica ampliada, voz y reportes adicionales | Calidad de datos suficiente, indicadores acordados y política para audio y exportaciones | Indicadores ampliados y captura de voz con transcripción editable; el reporte de eficiencia ya forma parte de la fase 1. |
 | 6 | Estabilización y despliegue | Alcance de versión y políticas operativas | Publicación verificada y operación documentada. |
 
 ## Fase 0. Preparación y arquitectura
@@ -27,22 +30,23 @@ Las fases expresan dependencias y resultados verificables, sin fechas comprometi
 
 ## Fase 1. Base de datos, autenticación y tickets manuales
 
-**Dependencias:** confirmar el catálogo definitivo de categorías, el formato del número y la zona horaria, y el responsable institucional del alta de técnicos.
+**Dependencias:** confirmar el catálogo definitivo de categorías, el formato del número y la zona horaria, y el responsable institucional del alta de operadores.
 
-**Entregables:** aplicación React, TypeScript, Vite y Tailwind CSS; migraciones PostgreSQL conforme al [diseño de base de datos](database-design.md); Auth; RLS; perfiles; catálogo de categorías; bandeja con filtros; formulario manual; detalle e historial; acciones de tomar, iniciar, resolver, cerrar y reabrir; generación del número; idempotencia; pruebas de integración; verificaciones iniciales en GitHub Actions según el [flujo de trabajo](github-workflow.md).
+**Entregables:** aplicación React, TypeScript, Vite y Tailwind CSS; migraciones PostgreSQL conforme al [diseño de base de datos](database-design.md); Auth; RLS; perfiles; catálogo de categorías; bandeja con filtros; formulario manual; detalle e historial; acciones de iniciar, resolver, cerrar y reabrir; reporte de eficiencia para `admin` activo; generación del número; idempotencia; pruebas de integración; verificaciones iniciales en GitHub Actions según el [flujo de trabajo](github-workflow.md).
 
-**Estado parcial:** autenticación, perfiles, catálogo provisional, tickets, historial y RPC están implementados en código, con 51 pruebas unitarias y build correcto. Faltan la aplicación real de las migraciones, la verificación de RLS contra un proyecto Supabase controlado, las pruebas de componentes y end-to-end, y los workflows de CI.
+**Estado parcial:** autenticación, perfiles, catálogo provisional, tickets, historial, RPC y reporte de eficiencia están implementados en código, con 59 pruebas unitarias y build correcto. Faltan la aplicación real de las migraciones, la verificación de RLS y RPC contra un proyecto Supabase controlado, las pruebas de componentes y end-to-end, y los workflows de CI.
 
 **Criterios de aceptación:**
 
-- Los tres técnicos acceden con cuentas individuales y registran tickets antes de atender la incidencia, sin IA.
+- Los tres operadores acceden con cuentas individuales `admin` activas y registran tickets antes de atender la incidencia, sin IA.
 - El ticket nace en estado `nuevo`, sin técnico asignado y sin solución.
-- PostgreSQL genera números únicos, incluidos registros concurrentes; el técnico asignado se obtiene de la sesión al tomar el ticket.
-- Solo un técnico activo toma, inicia, resuelve, cierra o reabre; el rol `admin` activo solo consulta.
+- PostgreSQL genera números únicos, incluidos registros concurrentes; el actor se obtiene de la sesión.
+- Cualquier cuenta `admin` o `tecnico` activa inicia, resuelve, cierra o reabre; no hay asignación individual obligatoria. El reporte queda restringido a `admin` activo.
 - La solución es obligatoria para resolver y cada transición se registra en un historial cronológico e inmutable.
-- Dos técnicos no pueden tomar el mismo ticket a la vez.
-- Las pruebas de RLS comprueban acceso anónimo, lectura compartida del personal activo y operaciones entre técnicos.
-- Ticket e historial se confirman o revierten juntos; los técnicos no alteran ni borran el historial.
+- Las transiciones bloquean la fila y un segundo intento simultáneo recibe un conflicto de estado.
+- Las pruebas de RLS comprueban acceso anónimo, lectura compartida del personal activo y operaciones entre operadores.
+- El reporte filtra por fecha, categoría y tipo de solicitante; la tasa usa división decimal, los resueltos se cuentan por el evento real de resolución y los promedios usan el ciclo vigente tras una reapertura.
+- Ticket e historial se confirman o revierten juntos; los operadores no alteran ni borran el historial.
 - Los reintentos no duplican tickets y los errores de guardado se muestran sin perder innecesariamente el formulario.
 - No existe borrado físico de tickets.
 - La corrección de campos ya guardados queda fuera de esta fase hasta que se decida su alcance.
@@ -94,7 +98,7 @@ Las fases expresan dependencias y resultados verificables, sin fechas comprometi
 
 **Dependencias:** calidad de datos suficiente, indicadores acordados y política para audio y exportaciones.
 
-**Entregables:** indicadores por fecha, categoría y tipo de persona; reportes autorizados; captura de voz con transcripción editable.
+**Entregables:** indicadores ampliados por fecha, categoría y tipo de persona; reportes adicionales autorizados; captura de voz con transcripción editable.
 
 **Criterios de aceptación:**
 
@@ -112,11 +116,11 @@ Las fases expresan dependencias y resultados verificables, sin fechas comprometi
 
 **Criterios de aceptación:**
 
-- El alta manual y el ciclo de vida pasan pruebas completas, incluyendo sesión vencida, toma simultánea, transición inválida, caída de IA, errores de red y confirmaciones repetidas.
+- El alta manual y el ciclo de vida pasan pruebas completas, incluyendo sesión vencida, transición simultánea, transición inválida, caída de IA, errores de red y confirmaciones repetidas.
 - No hay secretos de servidor en artefactos públicos; se verifican políticas RLS y auditoría en el entorno objetivo.
 - Se comprueban rendimiento y accesibilidad contra los objetivos acordados.
 - Se demuestra restauración y reversión; se documentan RPO, RTO y responsables de operación.
-- Los tres técnicos validan el uso cotidiano y disponen de una guía breve.
+- Los tres operadores validan el uso cotidiano y disponen de una guía breve.
 
 ## Riesgos y mitigaciones
 
@@ -124,7 +128,7 @@ Las fases expresan dependencias y resultados verificables, sin fechas comprometi
 | --- | --- | --- |
 | Dependencia del proveedor de IA o cambios de precio. | El asistente deja de ser viable. | Adaptador intercambiable y registro manual independiente. |
 | Envío de datos personales innecesarios al proveedor. | Exposición de información de la comunidad educativa. | Minimización en servidor, revisión de la política de datos y logs sin texto completo. |
-| RLS incompleta o permisos entre técnicos mal definidos. | Acceso a tickets ajenos o transiciones no autorizadas. | Pruebas negativas por rol, revisión antes de producción y políticas explícitas. |
+| RLS incompleta o permisos entre operadores mal definidos. | Acceso a tickets ajenos o transiciones no autorizadas. | Pruebas negativas por rol, revisión antes de producción y políticas explícitas. |
 | Duplicados por reintentos o doble confirmación. | Reportes y conteos incorrectos. | Idempotencia en servidor, restricciones de unicidad y pruebas de concurrencia. |
 | Categorías ambiguas o catálogo inestable. | Clasificación inconsistente y analítica poco fiable. | Catálogo acotado con descripciones, revisión periódica y evaluación de ejemplos; el catálogo actual es provisional. |
 | Concentración de conocimiento en un solo técnico. | Dificultad para operar y mantener el sistema. | Documentación, revisiones cruzadas y transferencia de conocimiento. |

@@ -4,11 +4,11 @@ Instrucciones permanentes para cualquier agente o persona que trabaje en TI Smar
 
 ## Contexto del proyecto
 
-TI SmartDesk AI registra y analiza tickets de soporte TI de una institución educativa. Los técnicos crean el ticket antes de atender la incidencia, lo toman de una cola compartida, inician la atención, registran la solución, lo cierran y pueden reabrirlo. Lo usan tres técnicos generalistas y atiende a estudiantes, docentes y administrativos, de forma presencial o a través de un número institucional compartido de WhatsApp Business.
+TI SmartDesk AI registra y analiza tickets de soporte TI de una institución educativa. Los operadores crean el ticket antes de atender la incidencia, lo inician desde una cola compartida, registran la solución, lo cierran y pueden reabrirlo. Lo usan tres cuentas operativas del Área TI con rol `admin` activo y permisos equivalentes, y atiende a estudiantes, docentes y administrativos, de forma presencial o a través de un número institucional compartido de WhatsApp Business.
 
 La primera versión **no integra WhatsApp técnicamente**: el canal se registra como dato y el texto se aporta manualmente. El chatbot propone una clasificación y un borrador editable; el técnico confirma antes de guardar.
 
-Estado actual: **fase 1 en curso**. Existen el frontend React con autenticación, las migraciones de perfiles, catálogo, tickets e historial con RLS y RPC, y pruebas unitarias. Todavía no hay IA, chatbot, RAG, voz, reportes ni workflows de CI.
+Estado actual: **fase 1 en curso**. Existen el frontend React con autenticación, las migraciones de perfiles, catálogo, tickets e historial con RLS y RPC, el reporte de eficiencia para `admin` activo y pruebas unitarias. Todavía no hay IA, chatbot, RAG, voz ni workflows de CI.
 
 ## Fuentes de verdad
 
@@ -33,7 +33,7 @@ Si el código y la documentación difieren, se detiene el cambio y se resuelve l
 1. Los tickets se crean antes de atender la incidencia y describen el problema reportado.
 2. El número del ticket lo genera PostgreSQL; nunca el cliente ni la IA.
 3. Se registran asunto, descripción, categoría, nombre y tipo de solicitante y canal de origen; la ubicación es opcional.
-4. El técnico asignado se deriva de la sesión autenticada al tomar el ticket.
+4. El actor de cada operación se deriva de la sesión autenticada. No existe toma ni asignación individual obligatoria: cualquier cuenta `admin` activa puede continuar el ticket.
 5. La ubicación pertenece al ticket, no a la persona.
 6. El registro y las transiciones manuales funcionan sin IA.
 7. La IA interpreta, clasifica y prepara un borrador editable.
@@ -43,10 +43,10 @@ Si el código y la documentación difieren, se detiene el cambio y se resuelve l
 11. WhatsApp no se integra directamente en la primera versión.
 12. La IA no inventa datos faltantes: los deja pendientes o pide aclaración.
 13. El ciclo de vida es `nuevo` → `en_atencion` → `resuelto` → `cerrado`; un ticket resuelto o cerrado puede reabrirse.
-14. Solo un técnico activo crea, toma, inicia, resuelve, cierra o reabre; el rol `admin` activo solo consulta.
-15. La solución es obligatoria para resolver y solo la registra el técnico asignado.
+14. Solo una cuenta `admin` o `tecnico` activa crea, inicia, resuelve, cierra o reabre. Las tres cuentas operativas del Área TI son `admin` activas y tienen permisos equivalentes; el reporte de eficiencia queda restringido a `admin` activo.
+15. La solución es obligatoria para resolver y la registra el operador activo que ejecuta la transición.
 16. No se elimina físicamente un ticket ni se modifica su historial.
-17. Dos técnicos no pueden tomar el mismo ticket a la vez.
+17. Las transiciones bloquean la fila: dos operadores no pueden ejecutar la misma transición a la vez y el segundo recibe un conflicto de estado.
 18. Un reintento de creación no duplica el ticket.
 
 ## Arquitectura en una frase
@@ -123,7 +123,7 @@ Límites de confianza:
 
 ## Restricciones actuales
 
-- No implementar chatbot, RAG, voz, reportes ni workflows de CI sin una tarea aprobada.
+- No implementar chatbot, RAG, voz, reportes adicionales ni workflows de CI sin una tarea aprobada.
 - No modificar el ciclo de vida de tickets ni sus permisos sin actualizar reglas, requisitos, migraciones y pruebas.
 - No ejecutar migraciones en un proyecto Supabase remoto sin autorización explícita.
 - No instalar dependencias para tareas de documentación.
@@ -145,4 +145,4 @@ Un cambio está terminado cuando:
 
 ## Decisiones bloqueantes
 
-Antes de completar la fase 1 deben resolverse: catálogo de categorías (DP-01), política de correcciones (DP-02), formato del número y fechas (DP-04), responsable del alta y baja de técnicos (DP-05) y reasignación de tickets de técnicos desactivados (DP-09). Antes de la fase 2: proveedor de IA, presupuesto y tratamiento de datos (DP-06). El detalle está en [docs/decisions.md](docs/decisions.md).
+Antes de completar la fase 1 deben resolverse: catálogo de categorías (DP-01), política de correcciones (DP-02), formato del número y fechas (DP-04) y responsable del alta y baja de operadores (DP-05). La reasignación de tickets de técnicos desactivados quedó resuelta por DA-31 (DP-09). Antes de la fase 2: proveedor de IA, presupuesto y tratamiento de datos (DP-06). El detalle está en [docs/decisions.md](docs/decisions.md).

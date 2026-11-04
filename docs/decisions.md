@@ -36,8 +36,8 @@ Estados posibles:
 | DA-19 | Los perfiles operativos viven en `public.profiles`, 1:1 con `auth.users`, con roles `admin` y `tecnico` y RLS de solo lectura para el cliente. | Aceptada | Reemplaza el nombre conceptual `technician_profiles`. El navegador no puede escribir perfiles ni autoasignarse privilegios. |
 | DA-20 | Las cuentas y los perfiles se aprovisionan manualmente con un rol de confianza; no hay registro público ni alta automática de administradores. | Aceptada | Reduce la superficie de ataque y evita crear privilegios por defecto. Requiere un responsable institucional (DP-05). |
 | DA-21 | El frontend usa solo la URL y la clave publicable o `anon` de Supabase, validadas al iniciar. | Aceptada | Las claves públicas quedan en el bundle, por lo que la autorización depende de RLS. Se rechaza una configuración que parezca `service_role` o una clave secreta. |
-| DA-22 | El ticket recorre los estados `nuevo`, `en_atencion`, `resuelto`, `cerrado` y `reabierto`; la toma y el inicio son operaciones separadas. | Aceptada | Permite reservar trabajo antes de iniciar la atención y auditar cada paso por separado. |
-| DA-23 | El personal activo (`admin` y `tecnico`) comparte la lectura de tickets, categorías, perfiles e historial; solo un técnico activo ejecuta transiciones. | Aceptada | El servicio es un mostrador común. El rol administrativo queda en supervisión de solo lectura. |
+| DA-22 | El ticket recorre los estados `nuevo`, `en_atencion`, `resuelto`, `cerrado` y `reabierto`; la toma y el inicio son operaciones separadas. | Reemplazada por DA-31 | La operación compartida permite iniciar directamente desde `nuevo` o `reabierto`, sin reserva individual. |
+| DA-23 | El personal activo (`admin` y `tecnico`) comparte la lectura de tickets, categorías, perfiles e historial; solo un técnico activo ejecuta transiciones. | Reemplazada por DA-31 | Las tres cuentas del Área TI son `admin` activas y operan con permisos equivalentes; el reporte queda restringido a `admin`. |
 | DA-24 | El ticket usa `fecha_creacion`, `fecha_inicio_atencion`, `fecha_resolucion` y `fecha_cierre` como `timestamptz` del servidor. | Aceptada | Modela el ciclo real, permite medir tiempos y evita una fecha de atención separada. |
 | DA-25 | La idempotencia usa `clave_idempotencia` única y `huella_contenido`; un reintento idéntico devuelve el ticket y uno con contenido distinto se rechaza. | Aceptada | Cumple RNF-11 y prepara futuras integraciones. La clave es global y se valida junto con el actor. |
 | DA-26 | El número visible se compone como `TS-` más una secuencia de 6 dígitos. | Aceptada como formato provisional | Cumple RN-02 y es legible. El formato definitivo, la zona horaria y las fechas retrospectivas se confirman en DP-04. |
@@ -45,20 +45,21 @@ Estados posibles:
 | DA-28 | El historial específico `ticket_historial` sustituye a una tabla genérica `audit_events` en la fase 1. | Aceptada | Cubre creación y transiciones con menos superficie. Se ampliará si aparecen operaciones administrativas auditables. |
 | DA-29 | La reapertura devuelve el ticket a la cola sin técnico, limpia las fechas del ciclo y conserva la solución anterior en el historial. | Aceptada | Evita reutilizar una solución obsoleta y mantiene trazabilidad para la nueva atención. |
 | DA-30 | Las integraciones externas usarán `private.registrar_ticket` con actor explícito; no se expone al cliente y no se implementan APIs externas todavía. | Aceptada como preparación | Permite incorporar canales sin sesión de técnico con permisos mínimos y sin abrir escritura directa. |
+| DA-31 | La operación del Área TI es compartida: cualquier perfil `admin` o `tecnico` activo crea y ejecuta transiciones, sin toma ni asignación obligatoria. El reporte de eficiencia exige `admin` activo. | Aceptada | Refleja el trabajo real de las tres cuentas y elimina el bloqueo por asignación. Conserva `tecnico_asignado_id` y los eventos `tomado` solo como historia; las transiciones siguen bloqueando la fila y auditando el actor real. |
 
 ## Decisiones pendientes
 
 | ID | Tema | Fase | Impacto si no se resuelve |
 | --- | --- | --- | --- |
 | DP-01 | Catálogo definitivo de categorías y responsable de su mantenimiento. | 1 | El catálogo provisional permite operar, pero la clasificación y la analítica pueden volverse inconsistentes. |
-| DP-02 | Corrección de campos ya guardados (categoría, solicitante, descripción o solución) sin reescribir el historial. | 1 | Los errores solo pueden corregirse con una operación nueva; falta definir el alcance y la autorización. La visibilidad quedó resuelta por DA-23. |
+| DP-02 | Corrección de campos ya guardados (categoría, solicitante, descripción o solución) sin reescribir el historial. | 1 | Los errores solo pueden corregirse con una operación nueva; falta definir el alcance y la autorización. La visibilidad quedó resuelta por DA-31. |
 | DP-03 | Campos obligatorios del ticket. | Resuelta | Las migraciones y RPC fijan asunto, descripción, categoría, solicitante, tipo y canal; la ubicación es opcional y la solución es obligatoria al resolver. |
 | DP-04 | Formato definitivo del número, zona horaria institucional y fechas retrospectivas. | 1 | Riesgo de inconsistencias en reportes; el formato actual es provisional (DA-26). |
-| DP-05 | Alta, baja y cambios de rol de técnicos: responsable institucional y política aplicable. | 1 | El procedimiento técnico existe, pero no se puede operar con cuentas reales sin designar quién autoriza los cambios. |
+| DP-05 | Alta, baja y cambios de rol de los operadores del Área TI: responsable institucional y política aplicable. | 1 | El procedimiento técnico existe, pero no se puede operar con cuentas reales sin designar quién autoriza los cambios. |
 | DP-06 | Proveedor de IA, presupuesto y tratamiento de datos. | 2 | Bloquea el chatbot y los límites de costo. |
 | DP-07 | Política de conservación, respaldo y RPO/RTO. | 6 | Riesgo de pérdida de datos y de incumplimiento. |
 | DP-08 | Corpus de conocimiento y política de acceso. | 4 | Bloquea RAG y su evaluación. |
-| DP-09 | Reasignación de tickets cuando el técnico asignado se desactiva o deja de estar disponible. | 1 | Un ticket asignado a un técnico inactivo queda bloqueado: el técnico no puede operar por `perfil_inactivo` y otro técnico no puede tomarlo por `ticket_ya_tomado`. Solo se libera mediante una operación privilegiada revisada o, si ya estaba resuelto o cerrado, con una reapertura. |
+| DP-09 | Reasignación de tickets cuando el técnico asignado se desactiva o deja de estar disponible. | Resuelta por DA-31 | La operación compartida ya no depende de la asignación: cualquier perfil `admin` o `tecnico` activo puede continuar el ciclo. La columna se conserva solo como historia. |
 
 ## Plantilla para nuevas decisiones
 

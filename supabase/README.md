@@ -1,5 +1,15 @@
 # Supabase: migraciones y aprovisionamiento
 
+## Modelo operativo vigente
+
+La migración `20261029100000_shared_admin_ticket_operations.sql` supersede las
+reglas operativas anteriores: no hay toma ni asignación obligatoria y cualquier
+`admin` activo puede operar el ciclo completo. Se conservan `tecnico_asignado_id`
+y los eventos históricos sin borrar ni reescribir datos. La RPC
+`obtener_reporte_eficiencia()` valida `is_admin()` en servidor y no concede
+acceso a `anon`. Aplicar esta migración después de las existentes y verificar
+las tres filas de perfiles con `rol = 'admin'` y `activo = true`.
+
 Este directorio contiene la infraestructura de datos de TI SmartDesk AI: perfiles, catálogo de categorías, tickets, historial y las funciones RPC del ciclo de vida. La aplicación no ejecuta migraciones ni incluye claves administrativas.
 
 ## Archivos
@@ -12,6 +22,10 @@ supabase/
     20261026131000_create_tickets.sql           Tickets, historial, triggers, índices y RLS
     20261026132000_create_ticket_rpc.sql        RPC del ciclo de vida, esquema private e idempotencia
     20261028150000_create_public_incident_intake.sql Catálogos, campos públicos, RLS y RPC de alta web
+    20261029100000_shared_admin_ticket_operations.sql Operación compartida admin/tecnico y reporte de eficiencia
+    20261104120000_stabilize_shared_operations.sql Proyección pública, privilegios mínimos y restricciones NOT VALID
+  tests/
+    20261029100000_shared_admin_ticket_operations.test.sql Pruebas SQL para entorno local/staging
   functions/
     registrar-incidencia-publica/index.ts       Puerta pública validada y limitada
   README.md                                     Este documento
@@ -28,12 +42,14 @@ Las migraciones son dependientes y deben aplicarse exactamente en este orden:
 3. `20261026131000_create_tickets.sql`: requiere `profiles` y `catalogo_categorias`; crea la secuencia del número, `tickets`, `ticket_historial`, triggers, índices y RLS.
 4. `20261026132000_create_ticket_rpc.sql`: requiere todo lo anterior; crea el esquema `private`, el núcleo de creación y las RPC públicas.
 5. `20261028150000_create_public_incident_intake.sql`: agrega catálogos y campos públicos, admite el canal `web` y crea la RPC exclusiva de `service_role`.
+6. `20261029100000_shared_admin_ticket_operations.sql`: habilita la operación compartida para perfiles `admin` y `tecnico` activos, elimina `tomar_ticket`, ajusta las restricciones y agrega el reporte de eficiencia con filtros.
+7. `20261104120000_stabilize_shared_operations.sql`: limita la proyección pública de docentes a `id` y `nombre_completo`, reduce `service_role` a lectura sobre tickets e historial, refuerza las restricciones de actor y correo como `NOT VALID` y actualiza las RPC. Supabase CLI aplica el archivo dentro de su propia transacción; el archivo no incluye `BEGIN`/`COMMIT` explícitos.
 
 ## Formulario público
 
-La ruta `/reportar` carga únicamente catálogos activos mediante SELECT anónimo. No tiene permisos de escritura. La función `registrar-incidencia-publica` valida el cuerpo, calcula un hash de la IP para el límite diario de 20 solicitudes y llama a `public.registrar_ticket_publico`, cuyo `EXECUTE` solo se concede a `service_role`. La RPC vuelve a validar docente, correo institucional, falla, tipo, área y relación pabellón/piso/ambiente antes de insertar el ticket en `nuevo` con canal `web`.
+La ruta `/reportar` carga únicamente catálogos activos mediante SELECT anónimo. No tiene permisos de escritura. El catálogo de docentes expone solo `id` y `nombre_completo`; el correo institucional no se solicita ni se devuelve al navegador. La función `registrar-incidencia-publica` valida el cuerpo, calcula un hash de la IP para el límite diario de 20 solicitudes y llama a `public.registrar_ticket_publico`, cuyo `EXECUTE` solo se concede a `service_role`. La RPC vuelve a validar docente, falla, tipo, área y relación pabellón/piso/ambiente, y resuelve el nombre y el correo del docente desde la base de datos antes de insertar el ticket en `nuevo` con canal `web`.
 
-El evento inicial de un reporte externo conserva `actor_id = null`: no se inventa una identidad autenticada para una persona no registrada. Los eventos de atención posteriores siguen requiriendo el técnico autenticado y el historial mantiene su inmutabilidad.
+El evento inicial de un reporte externo conserva `actor_id = null`: no se inventa una identidad autenticada para una persona no registrada. Los eventos de atención posteriores requieren un perfil `admin` o `tecnico` activo y el historial mantiene su inmutabilidad.
 
 ### Despliegue de la función
 
@@ -107,7 +123,7 @@ La aplicación **no tiene registro público** y no crea usuarios ni administrado
 2. Usar contraseñas temporales fuertes generadas con un gestor de contraseñas. No escribirlas en el repositorio, en este documento, en SQL ni en capturas.
 3. Marcar el correo como confirmado al crear la cuenta (opción de auto confirmación del panel). Sin confirmación, el inicio de sesión puede ser rechazado por Auth.
 4. Entregar la contraseña temporal por un canal seguro y solicitar su cambio según la política institucional. La interfaz de cambio de contraseña no forma parte de esta entrega.
-5. Crear la fila correspondiente en `public.profiles` con el UUID de `auth.users`. Las tres cuentas operativas se crean con rol `tecnico` y `activo = true`; `admin` se asigna solo si la institución lo decide y lo registra.
+5. Crear la fila correspondiente en `public.profiles` con el UUID de `auth.users`. Las tres cuentas operativas del Área TI se crean con rol `admin` y `activo = true`; así operan el ciclo completo y pueden consultar el reporte de eficiencia. El rol `tecnico` sigue permitido para cuentas operativas que no deban ver el reporte.
 
 Plantilla para el editor SQL. Sustituir los correos y nombres de ejemplo por los datos institucionales antes de ejecutar. Los correos `@ejemplo.test` son sintéticos y no deben usarse en producción.
 
@@ -117,14 +133,14 @@ select
   u.id,
   datos.nombres,
   datos.apellidos,
-  'tecnico',
+  'admin',
   true
 from auth.users u
 join (
   values
-    ('tecnico1@ejemplo.test', 'Nombres 1', 'Apellidos 1'),
-    ('tecnico2@ejemplo.test', 'Nombres 2', 'Apellidos 2'),
-    ('tecnico3@ejemplo.test', 'Nombres 3', 'Apellidos 3')
+    ('operador1@ejemplo.test', 'Nombres 1', 'Apellidos 1'),
+    ('operador2@ejemplo.test', 'Nombres 2', 'Apellidos 2'),
+    ('operador3@ejemplo.test', 'Nombres 3', 'Apellidos 3')
 ) as datos (email, nombres, apellidos)
   on datos.email = u.email
 where not exists (
@@ -136,9 +152,9 @@ where not exists (
 
 La tabla tiene `rol` con valores permitidos `admin` y `tecnico`, `activo` por defecto en `false`, longitudes acotadas y una clave foránea a `auth.users` con borrado en cascada.
 
-### Asignar un administrador
+### Cambiar el rol de una cuenta
 
-Solo si la institución define quién administra los perfiles. El cambio se ejecuta de forma deliberada con un rol de confianza:
+El cambio se ejecuta de forma deliberada con un rol de confianza:
 
 ```sql
 update public.profiles
@@ -146,11 +162,11 @@ set rol = 'admin'
 where id = (
   select id
   from auth.users
-  where email = 'correo-admin@ejemplo.test'
+  where email = 'correo-operador@ejemplo.test'
 );
 ```
 
-No se crea ningún administrador desde el frontend. El rol `admin` habilita la lectura de perfiles, catálogo, tickets e historial; no concede escritura ni permite ejecutar las transiciones de tickets. La gestión de cuentas sigue siendo una operación administrativa pendiente de decisión (DP-05).
+No se crea ni se modifica ningún rol desde el frontend. Un perfil `admin` activo opera tickets y accede al reporte de eficiencia; un perfil `tecnico` activo opera tickets pero no accede al reporte. La gestión de cuentas sigue siendo una operación administrativa pendiente de decisión (DP-05).
 
 ## Catálogo de categorías
 
@@ -172,16 +188,16 @@ Toda escritura pasa por funciones RPC. El cliente autenticado no tiene `INSERT`,
 
 | RPC | Quién | Efecto |
 | --- | --- | --- |
-| `public.crear_ticket(...)` | Técnico activo | Crea el ticket en `nuevo`, sin técnico ni solución, con número e historial `creado`. |
-| `public.tomar_ticket(id)` | Técnico activo | Asigna el técnico actual sin cambiar el estado. |
-| `public.iniciar_atencion(id)` | Técnico asignado | Pasa a `en_atencion` y registra la fecha de inicio. |
-| `public.resolver_ticket(id, solución)` | Técnico asignado | Exige solución, pasa a `resuelto` y registra la fecha. |
-| `public.cerrar_ticket(id)` | Técnico asignado | Pasa a `cerrado` y registra la fecha de cierre. |
-| `public.reabrir_ticket(id, motivo)` | Técnico activo | Vuelve a `reabierto`, quita la asignación, limpia fechas y conserva la solución previa como referencia y en el historial. |
+| `public.crear_ticket(...)` | Perfil `admin` o `tecnico` activo | Crea el ticket en `nuevo`, sin técnico asignado ni solución, con número e historial `creado`. |
+| `public.iniciar_atencion(id)` | Perfil `admin` o `tecnico` activo | Pasa a `en_atencion` y registra la fecha de inicio. No exige asignación. |
+| `public.resolver_ticket(id, solución)` | Perfil `admin` o `tecnico` activo | Exige solución, pasa a `resuelto` y registra la fecha. |
+| `public.cerrar_ticket(id)` | Perfil `admin` o `tecnico` activo | Pasa a `cerrado` y registra la fecha de cierre. |
+| `public.reabrir_ticket(id, motivo)` | Perfil `admin` o `tecnico` activo | Vuelve a `reabierto`, limpia las fechas del ciclo y conserva la solución previa y `tecnico_asignado_id` como referencia histórica. |
+| `public.obtener_reporte_eficiencia(desde, hasta, categoría, tipo)` | Solo `admin` activo | Devuelve el resumen y la evolución con filtros opcionales. |
 
 Todas las funciones derivan el actor de `auth.uid()`, bloquean la fila antes de una transición y escriben el historial en la misma transacción. No aceptan un identificador de actor enviado por el cliente.
 
-El esquema `private` contiene el núcleo `private.registrar_ticket` con actor explícito. Exige que el actor tenga perfil activo con rol `tecnico` y no está disponible para `anon` ni para `authenticated`; queda reservado a `service_role` como preparación para futuras integraciones de servidor. La interfaz no lo usa y no se implementan APIs externas todavía.
+El esquema `private` contiene el núcleo `private.registrar_ticket_compartido` con actor explícito. Exige que el actor tenga perfil activo con rol `admin` o `tecnico` y no está disponible para `anon` ni para `authenticated`; queda reservado a `service_role` como preparación para futuras integraciones de servidor. La interfaz no lo usa y no se implementan APIs externas todavía.
 
 ### Tokens de error
 
@@ -191,12 +207,11 @@ Las RPC lanzan un token estable en el mensaje; la interfaz lo traduce sin expone
 | --- | --- |
 | `no_autenticado` | No hay sesión válida. |
 | `perfil_inactivo` | Perfil inexistente, inactivo o sin el rol requerido. |
+| `solo_admin` | El reporte de eficiencia exige un perfil `admin` activo. |
 | `datos_invalidos` | Campo ausente, longitud inválida o valor no permitido. |
 | `categoria_inactiva` | La categoría no existe o fue desactivada. |
 | `ticket_no_encontrado` | El ticket no existe o no es visible. |
-| `transicion_invalida` | El estado no admite la operación. |
-| `ticket_ya_tomado` | Otro técnico tomó el ticket antes. |
-| `sin_asignacion` | La operación exige que el ticket esté asignado al técnico actual. |
+| `transicion_invalida` | El estado no admite la operación o la fila cambió durante la transición. |
 | `solucion_requerida` | La resolución no incluye una solución válida. |
 | `duplicate_request_conflict` | Se reutilizó la clave de idempotencia con contenido distinto. |
 | `historial_inmutable` | Se intentó modificar o borrar un evento. |
@@ -239,15 +254,17 @@ from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname in ('public', 'private')
   and p.proname in (
+    'is_admin',
     'is_active_staff',
     'is_active_technician',
     'crear_ticket',
-    'tomar_ticket',
     'iniciar_atencion',
     'resolver_ticket',
     'cerrar_ticket',
     'reabrir_ticket',
-    'registrar_ticket'
+    'obtener_reporte_eficiencia',
+    'registrar_ticket',
+    'registrar_ticket_compartido'
   )
 order by n.nspname, p.proname;
 
@@ -297,7 +314,8 @@ having count(*) > 1;
 select id, numero_ticket, estado
 from public.tickets
 where (estado in ('resuelto', 'cerrado') and solucion is null)
-   or (estado in ('en_atencion', 'resuelto', 'cerrado') and tecnico_asignado_id is null);
+   or (estado in ('en_atencion', 'resuelto', 'cerrado')
+       and fecha_inicio_atencion is null);
 ```
 
 Comprobaciones funcionales con cuentas sintéticas:
@@ -305,16 +323,17 @@ Comprobaciones funcionales con cuentas sintéticas:
 - Iniciar sesión con una cuenta activa debe mostrar el dashboard y la bandeja de tickets.
 - Recargar la página debe conservar la sesión.
 - Una cuenta sin fila en `profiles` o con `activo = false` debe ser rechazada y la sesión debe cerrarse.
-- Un técnico activo puede leer todos los perfiles para mostrar la atribución, y solo puede operar tickets como técnico.
-- Un administrador activo puede leer perfiles, catálogo, tickets e historial, pero no debe recibir acciones de transición ni poder ejecutar las RPC de operación.
+- Un perfil `admin` o `tecnico` activo puede leer todos los perfiles para mostrar la atribución y opera los tickets con el actor real de su sesión.
+- Un administrador activo puede iniciar, resolver, cerrar y reabrir tickets, y además consultar el reporte de eficiencia. Un perfil `tecnico` activo opera tickets pero recibe `solo_admin` al invocar el reporte.
 - Un usuario anónimo no puede leer ninguna tabla del módulo ni invocar las RPC.
 - Ningún usuario autenticado puede insertar, actualizar o borrar tickets o historial directamente mediante la API.
 - Desde el cliente, cualquier `INSERT`, `UPDATE` o `DELETE` sobre tickets o historial falla por permisos. Desde un rol con privilegios DML, el trigger de tickets responde `ticket_no_eliminable` y el del historial `historial_inmutable`.
 - Crear un ticket debe devolver estado `nuevo`, técnico nulo y solución nula.
-- Un segundo técnico que intenta tomar el mismo ticket debe recibir `ticket_ya_tomado`.
+- Dos sesiones que intentan iniciar el mismo ticket reciben una transición válida y la otra `transicion_invalida`; el historial no se duplica.
 - Resolver sin solución debe fallar con `solucion_requerida`.
-- Reabrir un ticket cerrado debe devolverlo a la cola sin técnico, conservar la solución anterior como referencia y registrarla en el historial.
-- Un ticket asignado a un técnico desactivado no puede ser operado por él (`perfil_inactivo`) ni tomado por otro (`ticket_ya_tomado`). La limitación está registrada en DP-09.
+- Reabrir un ticket cerrado debe devolverlo a la cola con las fechas del ciclo limpias, conservar la solución anterior como referencia y registrarla en el historial.
+- Un perfil desactivado recibe `perfil_inactivo` en cualquier RPC. Sus tickets pueden ser continuados por cualquier perfil activo, sin reasignación (DP-09 resuelta por DA-31).
+- El reporte rechaza a un perfil `tecnico` con `solo_admin`, aplica los filtros de fecha en `America/Lima` y devuelve una tasa decimal.
 
 Estas comprobaciones no sustituyen la matriz negativa de [estrategia de pruebas](../docs/testing-strategy.md). RLS debe verificarse con sesiones reales o con un entorno local controlado; el editor SQL se ejecuta como propietario y omite RLS.
 
@@ -323,8 +342,8 @@ Estas comprobaciones no sustituyen la matriz negativa de [estrategia de pruebas]
 - **Desactivar:** `update public.profiles set activo = false where id = ...;`. La interfaz rechaza el acceso en el siguiente inicio de sesión o recarga. Si se requiere invalidar sesiones ya emitidas, usar la administración de Auth del proyecto.
 - **Eliminar una cuenta sin actividad:** eliminar la cuenta en **Authentication > Users**. La clave foránea elimina el perfil asociado en cascada.
 - **Eliminar una cuenta con actividad:** la operación falla porque `tickets.created_by`, `tickets.tecnico_asignado_id` y `ticket_historial.actor_id` usan `ON DELETE RESTRICT`. Es intencional para no perder la atribución histórica. En ese caso se desactiva el perfil y no se borra la cuenta.
-- **Cambiar rol:** solo mediante una operación administrativa controlada y registrada fuera del cliente. Toda modificación de privilegios debe quedar documentada. Pasar un técnico a `admin` lo deja en solo lectura.
-- **Técnico desactivado con tickets asignados:** no existe reasignación (DP-09). El técnico inactivo no puede operar y otro técnico no puede tomar un ticket que siga asignado; si está en `nuevo`, `reabierto` o `en_atencion`, queda bloqueado. Si está `resuelto` o `cerrado`, cualquier técnico activo puede reabrirlo y la asignación se limpia. No se corrige con `UPDATE` manual desde el cliente: la reasignación requiere una operación privilegiada revisada y una decisión registrada.
+- **Cambiar rol:** solo mediante una operación administrativa controlada y registrada fuera del cliente. Toda modificación de privilegios debe quedar documentada. Tanto `admin` como `tecnico` operan tickets; la diferencia es que solo `admin` activo accede al reporte de eficiencia.
+- **Técnico desactivado con tickets asignados:** la reasignación individual ya no es necesaria (DP-09 resuelta por DA-31). El perfil inactivo no puede operar, pero cualquier perfil `admin` o `tecnico` activo puede iniciar, continuar, resolver o reabrir el ticket. `tecnico_asignado_id` se conserva solo como dato histórico y se limpia al reabrir.
 
 ## Diagnóstico
 
@@ -337,8 +356,8 @@ Estas comprobaciones no sustituyen la matriz negativa de [estrategia de pruebas]
 | La bandeja devuelve cero filas sin error | No hay tickets o el perfil no está activo. | Revisar `profiles.activo` y las políticas RLS; no desactivar RLS. |
 | El catálogo aparece vacío | Migración de catálogo ausente o falta de perfil activo. | Aplicar `20261026130000` y revisar la política de lectura. |
 | Error de columna o función inexistente | Migraciones aplicadas fuera de orden o incompletas. | Aplicar las migraciones faltantes en el orden documentado. |
-| «Otro técnico tomó este ticket» | Toma simultánea detectada por el bloqueo de fila. | Actualizar la vista y continuar con otro ticket. |
-| Un ticket asignado no ofrece acciones | El técnico asignado fue desactivado o ya no está disponible; no hay reasignación (DP-09). | Reabrir si está resuelto o cerrado; en otros estados, escalar la decisión DP-09 sin editar la asignación desde el cliente. |
+| «Otro operador cambió el estado» | Transición simultánea detectada por el bloqueo de fila. | Actualizar la vista y continuar con el estado vigente. |
+| Un ticket no ofrece acciones | El perfil está inactivo o el estado no admite la transición. | Revisar `profiles.activo` y el estado del ticket; cualquier operador activo puede continuar el ciclo. |
 | «La solución es obligatoria» | Intento de resolver con menos de 5 caracteres. | Escribir una solución válida antes de resolver. |
 | Error de conexión | URL incorrecta, red o proyecto pausado. | Revisar la URL, la conectividad y el estado del proyecto. |
 

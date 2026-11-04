@@ -12,6 +12,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { PublicReportPage } from './pages/PublicReportPage';
 import { TicketDetailPage } from './pages/TicketDetailPage';
 import { TicketsPage } from './pages/TicketsPage';
+import { ReportsPage } from './pages/ReportsPage';
 
 function App() {
   if (supabaseConfigProblems.length > 0) {
@@ -31,6 +32,7 @@ function App() {
             <Route element={<AppLayout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="reportes" element={<ReportsPage />} />
               <Route path="tickets" element={<TicketsPage />} />
               <Route path="tickets/nuevo" element={<NewTicketPage />} />
               <Route path="tickets/:ticketId" element={<TicketDetailPage />} />

@@ -114,7 +114,6 @@ export type NuevoTicketErrores = Partial<
 >;
 
 export type TicketPermisos = {
-  tomar: boolean;
   iniciar: boolean;
   resolver: boolean;
   cerrar: boolean;
@@ -216,19 +215,19 @@ export function getAccionLabel(accion: TicketAccion): string {
 
 export function getTicketPermisos(
   ticket: Ticket,
-  profile: Pick<Profile, 'id' | 'rol'>,
+  profile: Pick<Profile, 'id' | 'rol' | 'activo'>,
 ): TicketPermisos {
-  const esTecnico = profile.rol === 'tecnico';
-  const asignadoAMi = ticket.tecnicoAsignadoId === profile.id;
+  const esOperadorActivo =
+    profile.activo &&
+    (profile.rol === 'admin' || profile.rol === 'tecnico');
   const enCola = ticket.estado === 'nuevo' || ticket.estado === 'reabierto';
 
   return {
-    tomar: esTecnico && enCola && ticket.tecnicoAsignadoId === null,
-    iniciar: esTecnico && enCola && asignadoAMi,
-    resolver: esTecnico && ticket.estado === 'en_atencion' && asignadoAMi,
-    cerrar: esTecnico && ticket.estado === 'resuelto' && asignadoAMi,
+    iniciar: esOperadorActivo && enCola,
+    resolver: esOperadorActivo && ticket.estado === 'en_atencion',
+    cerrar: esOperadorActivo && ticket.estado === 'resuelto',
     reabrir:
-      esTecnico &&
+      esOperadorActivo &&
       (ticket.estado === 'resuelto' || ticket.estado === 'cerrado'),
   };
 }

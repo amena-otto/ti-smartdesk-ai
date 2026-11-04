@@ -1,10 +1,16 @@
 # Arquitectura de TI SmartDesk AI
 
+> **Actualización:** el Área TI usa cuentas individuales `admin` activas y un
+> flujo compartido. El navegador solicita transiciones, pero PostgreSQL deriva
+> identidad y autorización desde la sesión; `tecnico_asignado_id` solo conserva
+> compatibilidad histórica. Los reportes ADMIN se calculan en SQL con zona
+> horaria `America/Lima`.
+
 ## Estado y alcance
 
-Implementación parcial de la fase 1. Existen la aplicación React con autenticación, los perfiles con RLS y el módulo de tickets con su ciclo de vida, historial y operaciones en PostgreSQL. La IA, el chatbot, RAG, voz, reportes y el despliegue siguen pendientes.
+Implementación parcial de la fase 1. Existen la aplicación React con autenticación, los perfiles con RLS, el módulo de tickets con su ciclo de vida, historial y operaciones en PostgreSQL, y el reporte de eficiencia para `admin` activo. La IA, el chatbot, RAG, voz y el despliegue siguen pendientes.
 
-Los técnicos registran incidencias antes de atenderlas, las toman de una cola compartida, inician la atención, registran la solución, cierran el ticket y pueden reabrirlo. No se contempla asignación por especialidad, SLA ni integración directa con WhatsApp en la primera versión.
+Los operadores registran incidencias antes de atenderlas, inician la atención desde una cola compartida, registran la solución, cierran el ticket y pueden reabrirlo. No existe toma ni asignación individual obligatoria. No se contempla asignación por especialidad, SLA ni integración directa con WhatsApp en la primera versión.
 
 ## Componentes y responsabilidades
 
@@ -53,7 +59,7 @@ El proveedor de IA no tiene ruta hacia PostgreSQL. Toda escritura nace de una ac
 
 **Límites de confianza**
 
-- **Navegador:** cualquier dato puede ser manipulado. No se confía en la identidad, el rol, el número, el técnico asignado ni las fechas enviadas por el cliente.
+- **Navegador:** cualquier dato puede ser manipulado. No se confía en la identidad, el rol, el número, el actor ni las fechas enviadas por el cliente.
 - **Servidor Supabase:** única fuente de autorización. Auth identifica, RLS restringe filas y las RPC validan transiciones, generan el número y escriben el historial.
 - **Proveedor de IA:** recibe solo la información necesaria, nunca credenciales. Su salida es datos no confiables hasta pasar la validación del servidor.
 - **Cloudflare:** sirve artefactos estáticos. No aloja secretos, lógica de dominio ni datos de tickets.
@@ -84,7 +90,7 @@ docs/             documentación del proyecto
 | --- | --- |
 | Perfil | Referencia a la identidad de Auth, nombre, rol y condición de acceso. Tres usuarios iniciales, sin especialidades obligatorias. |
 | Categoría | Identificador estable, nombre y vigencia. Desactivar una categoría conserva las referencias históricas. |
-| Ticket | Identificador interno, número público único, asunto, descripción, categoría, solicitante, ubicación opcional, canal, estado, técnico asignado, solución y fechas del ciclo. |
+| Ticket | Identificador interno, número público único, asunto, descripción, categoría, solicitante, ubicación opcional, canal, estado, responsable histórico opcional, solución y fechas del ciclo. |
 | Historial | Evento de solo adición con actor, acción, estados anterior y nuevo, detalle y fecha. |
 | Documento y fragmento de conocimiento | Entidades futuras para contenido aprobado, procedencia, permisos y representaciones vectoriales. |
 
@@ -113,7 +119,7 @@ erDiagram
     uuid id PK
     text numero_ticket UK
     uuid categoria_id FK
-    uuid tecnico_asignado_id FK
+    uuid tecnico_asignado_id FK "histórico opcional"
     text solicitante_nombre
     text solicitante_tipo
     text estado
@@ -158,12 +164,9 @@ sequenceDiagram
   participant UI as Interfaz
   participant DB as PostgreSQL
   T->>UI: Abre un ticket de la cola
-  UI->>DB: tomar_ticket(id)
-  DB->>DB: Bloquea la fila y asigna auth.uid()
-  DB-->>UI: Ticket asignado en estado nuevo
-  T->>UI: Inicia la atención
   UI->>DB: iniciar_atencion(id)
-  DB->>DB: Valida asignación y pasa a en_atencion
+  DB->>DB: Bloquea la fila y pasa a en_atencion con auth.uid()
+  DB-->>UI: Ticket en atención
   T->>UI: Escribe la solución y resuelve
   UI->>DB: resolver_ticket(id, solución)
   DB->>DB: Exige solución, pasa a resuelto
@@ -173,9 +176,9 @@ sequenceDiagram
   DB-->>UI: Ticket e historial actualizados
 ```
 
-Si el problema reaparece, `reabrir_ticket` devuelve el ticket a `reabierto`, quita la asignación y limpia las fechas del ciclo. La solución anterior permanece en el historial y la fila conserva el texto para mostrarlo como solución previa.
+Si el problema reaparece, `reabrir_ticket` devuelve el ticket a `reabierto`, limpia las fechas del ciclo y lo deja disponible para cualquier operador activo. La solución anterior permanece en el historial y la fila conserva el texto para mostrarlo como solución previa.
 
-Todas las transiciones bloquean la fila antes de actuar. Un segundo técnico que intenta tomar el mismo ticket recibe `ticket_ya_tomado`; una transición desde un estado incorrecto recibe `transicion_invalida`.
+Todas las transiciones bloquean la fila antes de actuar y validan el estado de origen. Una transición desde un estado incorrecto recibe `transicion_invalida`; dos operadores no pueden ejecutar la misma transición a la vez.
 
 ### Registro asistido
 
@@ -215,12 +218,12 @@ Si la propuesta no supera la validación, el flujo continúa en modo manual sin 
 
 ### Consulta y análisis
 
-La interfaz consulta tickets con la identidad del técnico; RLS permite la lectura compartida al personal activo. Las agregaciones y futuras herramientas de IA deben respetar los mismos límites de acceso. El rol `admin` activo puede supervisar la lectura, pero no ejecutar transiciones.
+La interfaz consulta tickets con la identidad del operador; RLS permite la lectura compartida al personal activo. Las agregaciones y futuras herramientas de IA deben respetar los mismos límites de acceso. El reporte de eficiencia exige `admin` activo y se calcula en SQL con zona horaria `America/Lima`.
 
 ## Seguridad y auditoría
 
 - Denegar acceso anónimo a información de tickets, categorías, perfiles e historial y aplicar permisos mínimos.
-- Resolver el técnico asignado y el actor del historial en el servidor a partir de la sesión verificada. Rechazar intentos de suplantación.
+- Resolver el actor del historial en el servidor a partir de la sesión verificada. Rechazar intentos de suplantación.
 - Mantener las credenciales del proveedor de IA en el servidor. Las claves administrativas de Supabase no se incluyen en el navegador, prompts ni respuestas.
 - La escritura de tickets ocurre únicamente mediante RPC acotadas, `security definer`, con `search_path` fijado y sin SQL dinámico. El cliente no recibe DML directo.
 - La función privada con actor explícito queda reservada a `service_role` para futuras integraciones; no acepta llamadas del navegador.
@@ -245,14 +248,15 @@ Los errores de IA deben permitir continuar manualmente. Los errores de guardado 
 | DA-17 | Organización del código por `features` y `domain`. | Aceptada | Permite reutilizar validaciones y probar sin interfaz. |
 | DA-19 | Los perfiles operativos viven en `public.profiles`, 1:1 con `auth.users`. | Aceptada | El navegador no puede escribir perfiles ni autoasignarse privilegios. |
 | DA-21 | El frontend usa solo la URL y la clave publicable o `anon`. | Aceptada | La autorización depende de RLS, no de secretos embebidos. |
-| DA-22 | El ciclo de vida usa cinco estados y separa toma de inicio. | Aceptada | Permite reservar trabajo y conserva trazabilidad de cada paso. |
-| DA-23 | Lectura compartida para personal activo; operaciones solo para técnicos activos. | Aceptada | El servicio es un mostrador común; el rol administrativo queda en solo lectura. |
+| DA-22 | El ticket recorre cinco estados y la toma individual se eliminó del modelo operativo. | Reemplazada por DA-31 | La operación compartida permite iniciar directamente desde `nuevo` o `reabierto`. |
+| DA-23 | El personal activo (`admin` y `tecnico`) comparte lectura y operación de tickets. | Reemplazada por DA-31 | Las tres cuentas del Área TI son `admin` activas y equivalentes. |
 | DA-25 | La idempotencia usa una clave única y una huella del contenido. | Aceptada | Evita duplicados y detecta la reutilización con datos distintos. |
 | DA-26 | El número visible usa `TS-` y una secuencia de 6 dígitos. | Aceptada como formato provisional | Cumple RN-02; el formato definitivo se confirma en DP-04. |
 | DA-27 | El catálogo inicial de categorías es provisional y de solo lectura para el cliente. | Aceptada como provisional | Permite operar sin bloquear la fase 1; el mantenimiento sigue pendiente. |
 | DA-28 | El historial específico de tickets sustituye a una tabla genérica de auditoría. | Aceptada | Cubre las transiciones de fase 1 con menos superficie y reglas claras. |
 | DA-29 | La reapertura devuelve el ticket a la cola sin técnico y conserva la solución previa en el historial. | Aceptada | Evita reutilizar una solución obsoleta y mantiene la trazabilidad. |
 | DA-30 | Las integraciones externas usarán el núcleo privado de creación con actor explícito. | Aceptada como preparación | Permite incorporar canales sin sesión de técnico sin exponerlo al cliente. |
+| DA-31 | La operación del Área TI es compartida: cualquier perfil `admin` o `tecnico` activo crea y ejecuta transiciones, sin toma ni asignación obligatoria. El reporte de eficiencia exige `admin` activo. | Aceptada | Refleja el trabajo real de las tres cuentas y elimina el bloqueo por asignación. Conserva `tecnico_asignado_id` y los eventos `tomado` solo como historia. |
 
 El registro completo, con contexto, consecuencias y decisiones pendientes, está en [decisiones](decisions.md). El detalle de tablas, políticas RLS e idempotencia está en [diseño de base de datos](database-design.md).
 
@@ -264,6 +268,6 @@ El registro completo, con contexto, consecuencias y decisiones pendientes, está
 - Proveedor de IA, residencia y conservación de datos, presupuesto y límites de uso.
 - Modalidad de publicación en Cloudflare, dominios, entornos y objetivos de recuperación.
 - Responsable institucional del alta, baja y cambios de rol de técnicos.
-- Reasignación de tickets cuando el técnico asignado se desactiva o deja de estar disponible (DP-09).
+- Reasignación de tickets cuando el técnico asignado se desactiva o deja de estar disponible. La operación compartida elimina el bloqueo (DP-09 resuelta por DA-31).
 
 Véanse [reglas de negocio](business-rules.md), [requisitos](requirements.md), [diseño de base de datos](database-design.md), [diseño de IA](ai-design.md), [hoja de ruta](roadmap.md) y [decisiones](decisions.md).

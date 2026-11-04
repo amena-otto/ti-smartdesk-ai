@@ -12,7 +12,6 @@ import {
   Lock,
   RotateCcw,
   Save,
-  UserCheck,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -35,12 +34,38 @@ import {
   obtenerTicket,
   reabrirTicket,
   resolverTicket,
-  tomarTicket,
   type TicketResult,
 } from '../features/tickets/ticket-service';
 
 export function TicketDetailPage() {
   const { ticketId } = useParams<{ ticketId: string }>();
+
+  if (!ticketId) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4">
+        <Link
+          to="/tickets"
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Volver a la bandeja
+        </Link>
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700"
+        >
+          No se indicó un ticket válido.
+        </div>
+      </div>
+    );
+  }
+
+  // La clave por identificador reinicia el estado de carga al navegar entre
+  // tickets sin recurrir a setState síncrono dentro de un efecto.
+  return <TicketDetailContent key={ticketId} ticketId={ticketId} />;
+}
+
+function TicketDetailContent({ ticketId }: { ticketId: string }) {
   const { profile } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -77,10 +102,6 @@ export function TicketDetailPage() {
   }, [createdNotice, location.pathname, navigate]);
 
   useEffect(() => {
-    if (!ticketId) {
-      return;
-    }
-
     let active = true;
 
     void Promise.all([obtenerTicket(ticketId), obtenerHistorial(ticketId)]).then(
@@ -114,10 +135,6 @@ export function TicketDetailPage() {
   }, [ticketId, refreshToken]);
 
   const refreshHistory = useCallback(async () => {
-    if (!ticketId) {
-      return;
-    }
-
     const result = await obtenerHistorial(ticketId);
 
     if (result.ok) {
@@ -145,12 +162,10 @@ export function TicketDetailPage() {
     if (!result.ok) {
       setActionError(result.message);
 
-      if (ticketId) {
-        const refreshed = await obtenerTicket(ticketId);
+      const refreshed = await obtenerTicket(ticketId);
 
-        if (refreshed.ok && refreshed.data) {
-          setTicket(refreshed.data);
-        }
+      if (refreshed.ok && refreshed.data) {
+        setTicket(refreshed.data);
       }
 
       setActionLoading(false);
@@ -165,17 +180,6 @@ export function TicketDetailPage() {
     return true;
   }
 
-  async function handleTake() {
-    if (!ticket) {
-      return;
-    }
-
-    await runAction(
-      () => tomarTicket(ticket.id),
-      'Ticket tomado. Ahora puedes iniciar la atención.',
-    );
-  }
-
   async function handleStart() {
     if (!ticket) {
       return;
@@ -183,7 +187,7 @@ export function TicketDetailPage() {
 
     await runAction(
       () => iniciarAtencion(ticket.id),
-      'Atención iniciada. El ticket está en atención.',
+      'Atención iniciada. El ticket quedó a cargo del Área TI.',
     );
   }
 
@@ -243,33 +247,13 @@ export function TicketDetailPage() {
 
     const success = await runAction(
       () => reabrirTicket(ticket.id, reopenReason),
-      'Ticket reabierto y devuelto a la cola.',
+      'Ticket reabierto y disponible para el Área TI.',
     );
 
     if (success) {
       setReopenReason('');
       setReopenOpen(false);
     }
-  }
-
-  if (!ticketId) {
-    return (
-      <div className="mx-auto max-w-xl space-y-4">
-        <Link
-          to="/tickets"
-          className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Volver a la bandeja
-        </Link>
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700"
-        >
-          No se indicó un ticket válido.
-        </div>
-      </div>
-    );
   }
 
   if (loading) {
@@ -323,14 +307,12 @@ export function TicketDetailPage() {
   const permisos = profile
     ? getTicketPermisos(ticket, profile)
     : {
-        tomar: false,
         iniciar: false,
         resolver: false,
         cerrar: false,
         reabrir: false,
       };
   const hasActions =
-    permisos.tomar ||
     permisos.iniciar ||
     permisos.resolver ||
     permisos.cerrar ||
@@ -366,7 +348,7 @@ export function TicketDetailPage() {
           <CheckCircle2 className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
           <p>
             El ticket se registró correctamente en estado Nuevo. Ya aparece en
-            la bandeja para que un técnico lo tome.
+            la bandeja compartida del Área TI.
           </p>
         </div>
       ) : null}
@@ -422,26 +404,32 @@ export function TicketDetailPage() {
                   {ticket.solicitanteNombre}
                 </dd>
               </div>
-                <div>
-                  <dt className="text-xs font-medium text-slate-500">
-                    Tipo de solicitante
+              <div>
+                <dt className="text-xs font-medium text-slate-500">
+                  Tipo de solicitante
                 </dt>
                 <dd className="mt-1 text-sm text-slate-900">
                   {getSolicitanteTipoLabel(ticket.solicitanteTipo)}
+                </dd>
+              </div>
+              {ticket.solicitanteDni ? (
+                <div>
+                  <dt className="text-xs font-medium text-slate-500">DNI</dt>
+                  <dd className="mt-1 text-sm text-slate-900">
+                    {ticket.solicitanteDni}
                   </dd>
                 </div>
-                {ticket.solicitanteDni ? (
-                  <div>
-                    <dt className="text-xs font-medium text-slate-500">DNI</dt>
-                    <dd className="mt-1 text-sm text-slate-900">{ticket.solicitanteDni}</dd>
-                  </div>
-                ) : null}
-                {ticket.solicitanteCorreo ? (
-                  <div>
-                    <dt className="text-xs font-medium text-slate-500">Correo institucional</dt>
-                    <dd className="mt-1 text-sm text-slate-900">{ticket.solicitanteCorreo}</dd>
-                  </div>
-                ) : null}
+              ) : null}
+              {ticket.solicitanteCorreo ? (
+                <div>
+                  <dt className="text-xs font-medium text-slate-500">
+                    Correo institucional
+                  </dt>
+                  <dd className="mt-1 text-sm text-slate-900">
+                    {ticket.solicitanteCorreo}
+                  </dd>
+                </div>
+              ) : null}
               <div className="sm:col-span-2">
                 <dt className="text-xs font-medium text-slate-500">
                   Ubicación
@@ -517,9 +505,20 @@ export function TicketDetailPage() {
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Historial cronológico
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Historial cronológico
+              </h2>
+              {historyError ? (
+                <button
+                  type="button"
+                  onClick={() => void refreshHistory()}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700"
+                >
+                  Reintentar historial
+                </button>
+              ) : null}
+            </div>
             <div className="mt-4">
               {historyError ? (
                 <p role="alert" className="text-sm text-red-700">
@@ -534,15 +533,23 @@ export function TicketDetailPage() {
 
         <aside className="space-y-4">
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">Asignación</h2>
+            <h2 className="text-sm font-semibold text-slate-900">
+              Responsable
+            </h2>
             <dl className="mt-4 space-y-4">
               <div>
                 <dt className="text-xs font-medium text-slate-500">
-                  Técnico asignado
+                  Asignación individual
                 </dt>
                 <dd className="mt-1 text-sm font-medium text-slate-900">
-                  {ticket.tecnicoAsignadoNombre ?? 'Sin asignar'}
+                  {ticket.tecnicoAsignadoNombre ??
+                    'Operación compartida del Área TI'}
                 </dd>
+                {ticket.tecnicoAsignadoNombre ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Registro histórico de la toma anterior.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <dt className="text-xs font-medium text-slate-500">
@@ -557,28 +564,12 @@ export function TicketDetailPage() {
 
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-900">Acciones</h2>
-
-            {profile?.rol === 'admin' ? (
-              <p className="mt-3 flex items-start gap-2 text-sm leading-6 text-slate-600">
-                <Lock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                Tu perfil administrativo tiene lectura de tickets, pero las
-                transiciones las realizan los técnicos.
-              </p>
-            ) : null}
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Cualquier cuenta admin activa del Área TI puede continuar la
+              atención. La acción queda auditada con la sesión real.
+            </p>
 
             <div className="mt-4 space-y-3">
-              {permisos.tomar ? (
-                <button
-                  type="button"
-                  onClick={() => void handleTake()}
-                  disabled={actionLoading}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <UserCheck className="size-4" aria-hidden="true" />
-                  {actionLoading ? 'Procesando…' : 'Tomar ticket'}
-                </button>
-              ) : null}
-
               {permisos.iniciar ? (
                 <button
                   type="button"
@@ -607,7 +598,10 @@ export function TicketDetailPage() {
               ) : null}
 
               {permisos.resolver && solutionOpen ? (
-                <form onSubmit={(event) => void handleResolve(event)} noValidate>
+                <form
+                  onSubmit={(event) => void handleResolve(event)}
+                  noValidate
+                >
                   <label
                     htmlFor="solucion"
                     className="block text-sm font-medium text-slate-700"
@@ -718,7 +712,10 @@ export function TicketDetailPage() {
               ) : null}
 
               {permisos.reabrir && reopenOpen ? (
-                <form onSubmit={(event) => void handleReopen(event)} noValidate>
+                <form
+                  onSubmit={(event) => void handleReopen(event)}
+                  noValidate
+                >
                   <label
                     htmlFor="motivo-reapertura"
                     className="block text-sm font-medium text-slate-700"
@@ -775,13 +772,9 @@ export function TicketDetailPage() {
                 </form>
               ) : null}
 
-              {!hasActions && profile?.rol === 'tecnico' ? (
+              {!hasActions ? (
                 <p className="text-sm leading-6 text-slate-600">
                   No hay acciones disponibles para tu usuario en este estado.
-                  {ticket.tecnicoAsignadoId &&
-                  ticket.tecnicoAsignadoId !== profile.id
-                    ? ' El ticket está asignado a otro técnico.'
-                    : ''}
                 </p>
               ) : null}
             </div>

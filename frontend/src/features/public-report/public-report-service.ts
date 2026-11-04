@@ -1,8 +1,8 @@
 import { requireSupabase } from '../../lib/supabase';
 
 export type CatalogItem = { id: string; nombre: string };
-export type Docente = CatalogItem & { correo_institucional: string };
-type DocenteRow = { id: string; nombre_completo: string; correo_institucional: string };
+export type Docente = CatalogItem;
+type DocenteRow = { id: string; nombre_completo: string };
 export type Piso = CatalogItem & { pabellon_id: string };
 export type Ambiente = CatalogItem & { piso_id: string };
 export type Falla = CatalogItem;
@@ -30,13 +30,23 @@ async function list<T>(table: string, columns: string, order = 'nombre'): Promis
 }
 
 export function listarDocentes(): Promise<Result<Docente[]>> {
-  return list<DocenteRow>('catalogo_docentes', 'id, nombre_completo, correo_institucional').then((result) =>
-    result.ok ? { ok: true, data: result.data.map((item) => ({ id: item.id, nombre: item.nombre_completo, correo_institucional: item.correo_institucional })) } : result,
+  return list<DocenteRow>('catalogo_docentes', 'id, nombre_completo').then((result) =>
+    result.ok ? { ok: true, data: result.data.map((item) => ({ id: item.id, nombre: item.nombre_completo })) } : result,
   );
 }
 
 export function listarPabellones(): Promise<Result<CatalogItem[]>> { return list('catalogo_pabellones', 'id, nombre'); }
-export function listarPisos(): Promise<Result<Piso[]>> { return list('catalogo_pisos', 'id, nombre, pabellon_id'); }
+export async function listarPisos(pabellonId: string): Promise<Result<Piso[]>> {
+  if (!pabellonId) return { ok: true, data: [] };
+  const { data, error } = await requireSupabase()
+    .from('catalogo_pisos')
+    .select('id, nombre, pabellon_id')
+    .eq('pabellon_id', pabellonId)
+    .eq('activo', true)
+    .order('nombre');
+  if (error || !Array.isArray(data)) return { ok: false, message: 'No se pudo cargar el catálogo.' };
+  return { ok: true, data: data as Piso[] };
+}
 export function listarAmbientes(): Promise<Result<Ambiente[]>> { return list('catalogo_ambientes', 'id, nombre, piso_id'); }
 export function listarAreas(): Promise<Result<CatalogItem[]>> { return list('catalogo_areas_administrativas', 'id, nombre'); }
 
