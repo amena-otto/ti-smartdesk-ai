@@ -23,9 +23,9 @@ Principios:
 | Evaluación de IA | Clasificación, extracción, salida inválida e instrucciones maliciosas. | Conjunto de casos versionado y ejecución por lote. |
 | No funcional | Accesibilidad, rendimiento percibido y despliegue. | axe-core, medición manual y CI. |
 
-Vitest está instalado en `frontend` y ejecuta 59 pruebas unitarias en siete archivos: configuración de entorno, perfil, errores de autenticación, dominio de tickets, traducción de errores de tickets, servicio del reporte de eficiencia y su reductor de reintento (`npm run test`). React Testing Library, Playwright y axe-core siguen siendo propuestas para fases posteriores.
+Vitest está instalado en `frontend` y ejecuta 60 pruebas unitarias en ocho archivos: configuración de entorno, perfil, errores de autenticación, dominio de tickets, traducción de errores de tickets, dependencias del catálogo público, proyección del catálogo de docentes y servicio del reporte de eficiencia con su reductor de reintento (`npm run test`). React Testing Library, Playwright y axe-core siguen siendo propuestas para fases posteriores.
 
-Las pruebas de integración SQL planificadas viven en `supabase/tests`; requieren un proyecto Supabase local o de staging autorizado y todavía no se han ejecutado. No se consideran verificadas por el solo hecho de estar versionadas.
+Las pruebas de integración SQL viven en `supabase/tests` y requieren un proyecto Supabase local o de staging autorizado. El archivo `20261029100000_shared_admin_ticket_operations.test.sql` se ejecutó contra el Supabase local con 46 aserciones pgTAP en verde. Esa ejecución no sustituye la verificación de RLS contra un entorno controlado ni autoriza aplicar migraciones en producción.
 
 ## Puertas de calidad
 
@@ -94,7 +94,7 @@ Cada política se prueba en positivo y en negativo. Matriz mínima:
 | Cualquier autenticado | Modificar o borrar un evento del historial. | Rechazado por el trigger `historial_inmutable`. |
 | Cualquier autenticado | Borrar un ticket. | Rechazado por el trigger `ticket_no_eliminable`. |
 
-Las pruebas unitarias actuales cubren configuración, parseo de perfil, errores de autenticación, parseo y permisos de tickets, validaciones de formulario, mensajes de error y el reporte de eficiencia. No sustituyen las pruebas de RLS: estas requieren aplicar las migraciones en un proyecto Supabase controlado y ejecutar la matriz anterior con cuentas sintéticas. El archivo `supabase/tests/20261029100000_shared_admin_ticket_operations.test.sql` prepara esa verificación, pero no se ha ejecutado en este entorno.
+Las pruebas unitarias actuales cubren configuración, parseo de perfil, errores de autenticación, parseo y permisos de tickets, validaciones de formulario, mensajes de error, catálogos públicos y el reporte de eficiencia. No sustituyen las pruebas de RLS: estas requieren aplicar las migraciones en un proyecto Supabase controlado y ejecutar la matriz anterior con cuentas sintéticas. El archivo `supabase/tests/20261029100000_shared_admin_ticket_operations.test.sql` incluye esa verificación y se ejecutó localmente con 46 aserciones pgTAP en verde, incluidas las restricciones `NOT VALID` y los privilegios mínimos de `service_role`.
 
 ## Idempotencia y concurrencia
 

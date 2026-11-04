@@ -116,7 +116,7 @@ export function ReportsPage() {
         <p className="mt-2 text-sm text-slate-600">
           Métricas históricas en zona horaria America/Lima. Los tickets
           resueltos se cuentan por la fecha real de resolución del historial y
-          cada promedio usa únicamente el ciclo vigente del ticket.
+          cada promedio usa el ciclo vigente de los tickets recibidos en el intervalo. La tasa compara resueltos con recibidos y puede superar el 100 %. Pendientes refleja el estado actual; reaperturas cuenta eventos.
         </p>
       </div>
 
@@ -260,7 +260,7 @@ function ReportContent({ report }: { report: EfficiencyReport }) {
     ['Resueltos', String(resumen.resueltos)],
     ['Pendientes', String(resumen.pendientes)],
     ['Reabiertos', String(resumen.reabiertos)],
-    ['Tasa de resolución', `${resumen.tasa_resolucion ?? 0}%`],
+    ['Tasa de resolución', resumen.tasa_resolucion === null ? '—' : `${resumen.tasa_resolucion}%`],
     ['Inicio promedio', `${resumen.tiempo_inicio_minutos ?? '—'} min`],
     [
       'Resolución promedio',

@@ -1,8 +1,8 @@
 import { requireSupabase } from '../../lib/supabase';
 
 export type CatalogItem = { id: string; nombre: string };
-export type Docente = CatalogItem & { correo_institucional: string };
-type DocenteRow = { id: string; nombre_completo: string; correo_institucional: string };
+export type Docente = CatalogItem;
+type DocenteRow = { id: string; nombre_completo: string };
 export type Piso = CatalogItem & { pabellon_id: string };
 export type Ambiente = CatalogItem & { piso_id: string };
 export type Falla = CatalogItem;
@@ -30,8 +30,8 @@ async function list<T>(table: string, columns: string, order = 'nombre'): Promis
 }
 
 export function listarDocentes(): Promise<Result<Docente[]>> {
-  return list<DocenteRow>('catalogo_docentes', 'id, nombre_completo, correo_institucional').then((result) =>
-    result.ok ? { ok: true, data: result.data.map((item) => ({ id: item.id, nombre: item.nombre_completo, correo_institucional: item.correo_institucional })) } : result,
+  return list<DocenteRow>('catalogo_docentes', 'id, nombre_completo').then((result) =>
+    result.ok ? { ok: true, data: result.data.map((item) => ({ id: item.id, nombre: item.nombre_completo })) } : result,
   );
 }
 

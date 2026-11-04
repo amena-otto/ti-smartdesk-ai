@@ -245,7 +245,8 @@ Reglas adicionales:
 - `public.is_active_staff()` y `public.is_active_technician()` son `security definer`, con `search_path` vacío y ejecución revocada para `public` y `anon`, para evitar recursión en RLS. Desde la operación compartida, `is_active_technician()` delega en `is_active_staff()`.
 - `public.is_admin()` exige `rol = 'admin'` y `activo = true`; es la única comprobación que separa el reporte de eficiencia de la operación de tickets.
 - El usuario puede leer su propia fila aunque esté inactivo; las tablas de dominio exigen un perfil activo.
-- Las claves `service_role` nunca se usan en el navegador. La única función reservada a `service_role` es el núcleo privado de creación para futuras integraciones.
+- El catálogo público de docentes expone solo `id` y `nombre_completo`; `correo_institucional` se resuelve en servidor y no se devuelve al navegador.
+- Las claves `service_role` nunca se usan en el navegador. `service_role` conserva `EXECUTE` sobre la RPC pública de alta web y el núcleo privado de creación, pero solo tiene `SELECT` sobre `tickets` y `ticket_historial`; toda escritura pasa por funciones `security definer`.
 - Las correcciones futuras no habilitan `UPDATE` libre: se harán mediante operaciones auditadas con campos permitidos.
 
 ## Reporte de eficiencia
@@ -265,6 +266,7 @@ La RPC `public.obtener_reporte_eficiencia(p_fecha_desde, p_fecha_hasta, p_catego
 
 - `creado` se escribe en la misma transacción que el ticket.
 - `iniciado`, `resuelto`, `cerrado` y `reabierto` se escriben con su transición. `tomado` solo permanece en registros históricos anteriores a la operación compartida.
+- El evento público inicial puede tener `actor_id` nulo solo con acción `creado`, estado anterior nulo, estado nuevo `nuevo` y el detalle canónico del formulario. La restricción es `NOT VALID` para conservar históricos, pero rechaza cualquier fila nueva que no cumpla la condición.
 - El evento incluye actor, acción, estados y detalle acotado; no guarda conversaciones completas.
 - Un trigger impide `UPDATE` y `DELETE` sobre el historial.
 - El historial es la auditoría de dominio y es independiente de los logs técnicos o del proveedor de IA.

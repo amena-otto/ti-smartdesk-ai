@@ -23,6 +23,7 @@ supabase/
     20261026132000_create_ticket_rpc.sql        RPC del ciclo de vida, esquema private e idempotencia
     20261028150000_create_public_incident_intake.sql Catálogos, campos públicos, RLS y RPC de alta web
     20261029100000_shared_admin_ticket_operations.sql Operación compartida admin/tecnico y reporte de eficiencia
+    20261104120000_stabilize_shared_operations.sql Proyección pública, privilegios mínimos y restricciones NOT VALID
   tests/
     20261029100000_shared_admin_ticket_operations.test.sql Pruebas SQL para entorno local/staging
   functions/
@@ -42,10 +43,11 @@ Las migraciones son dependientes y deben aplicarse exactamente en este orden:
 4. `20261026132000_create_ticket_rpc.sql`: requiere todo lo anterior; crea el esquema `private`, el núcleo de creación y las RPC públicas.
 5. `20261028150000_create_public_incident_intake.sql`: agrega catálogos y campos públicos, admite el canal `web` y crea la RPC exclusiva de `service_role`.
 6. `20261029100000_shared_admin_ticket_operations.sql`: habilita la operación compartida para perfiles `admin` y `tecnico` activos, elimina `tomar_ticket`, ajusta las restricciones y agrega el reporte de eficiencia con filtros.
+7. `20261104120000_stabilize_shared_operations.sql`: limita la proyección pública de docentes a `id` y `nombre_completo`, reduce `service_role` a lectura sobre tickets e historial, refuerza las restricciones de actor y correo como `NOT VALID` y actualiza las RPC. Supabase CLI aplica el archivo dentro de su propia transacción; el archivo no incluye `BEGIN`/`COMMIT` explícitos.
 
 ## Formulario público
 
-La ruta `/reportar` carga únicamente catálogos activos mediante SELECT anónimo. No tiene permisos de escritura. La función `registrar-incidencia-publica` valida el cuerpo, calcula un hash de la IP para el límite diario de 20 solicitudes y llama a `public.registrar_ticket_publico`, cuyo `EXECUTE` solo se concede a `service_role`. La RPC vuelve a validar docente, correo institucional, falla, tipo, área y relación pabellón/piso/ambiente antes de insertar el ticket en `nuevo` con canal `web`.
+La ruta `/reportar` carga únicamente catálogos activos mediante SELECT anónimo. No tiene permisos de escritura. El catálogo de docentes expone solo `id` y `nombre_completo`; el correo institucional no se solicita ni se devuelve al navegador. La función `registrar-incidencia-publica` valida el cuerpo, calcula un hash de la IP para el límite diario de 20 solicitudes y llama a `public.registrar_ticket_publico`, cuyo `EXECUTE` solo se concede a `service_role`. La RPC vuelve a validar docente, falla, tipo, área y relación pabellón/piso/ambiente, y resuelve el nombre y el correo del docente desde la base de datos antes de insertar el ticket en `nuevo` con canal `web`.
 
 El evento inicial de un reporte externo conserva `actor_id = null`: no se inventa una identidad autenticada para una persona no registrada. Los eventos de atención posteriores requieren un perfil `admin` o `tecnico` activo y el historial mantiene su inmutabilidad.
 
